@@ -59,9 +59,11 @@ const Profile = () => {
   };
 
   useEffect(() => {
-    loadProfile();
+    if (user?.id) {
+      loadProfile();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user?.id]);
 
   const saveProfile = async () => {
     if (!user) return;
@@ -86,7 +88,6 @@ const Profile = () => {
       toast({ title: "Error saving", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Profile saved" });
-      await loadProfile();
     }
     setSaving(false);
   };
