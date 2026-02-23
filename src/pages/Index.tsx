@@ -59,10 +59,16 @@ const Index = () => {
       const result = await jobsApi.scanJobs();
       if (result.success) {
         toast({
-          title: "Scan complete",
-          description: `${result.queries_run || 0} queries → ${result.raw_results || 0} results → ${result.jobs_extracted || 0} extracted → ${result.jobs_saved || 0} new jobs saved`,
+          title: "Scan started",
+          description: result.message || "Jobs will appear shortly — the page will refresh automatically.",
         });
-        await loadData();
+        // Poll for new jobs every 15 seconds for 2 minutes
+        let polls = 0;
+        const interval = setInterval(async () => {
+          polls++;
+          await loadData();
+          if (polls >= 8) clearInterval(interval);
+        }, 15000);
       } else {
         toast({ title: "Scan failed", description: result.error, variant: "destructive" });
       }
