@@ -253,7 +253,8 @@ async function runScan(userId: string, authHeader: string) {
     scoreJobsBatch(chunk, profile, LOVABLE_API_KEY)
   );
 
-  const scoredJobs: { job: any; score: number }[] = [];
+  // Collect ALL scored jobs with their scores
+  const allScoredJobs: { job: any; score: number }[] = [];
   for (let ci = 0; ci < scoreChunks.length; ci++) {
     const chunk = scoreChunks[ci];
     const scoreResult = scoringResults[ci];
@@ -262,14 +263,28 @@ async function runScan(userId: string, authHeader: string) {
     for (let ji = 0; ji < chunk.length; ji++) {
       const scoreEntry = scores.find((s) => s.index === ji);
       const score = scoreEntry ? Math.min(100, Math.max(0, Math.round(scoreEntry.score))) : 50;
-      if (score >= 60) scoredJobs.push({ job: chunk[ji], score });
+      allScoredJobs.push({ job: chunk[ji], score });
     }
   }
-  console.log(`${scoredJobs.length} jobs passed scoring threshold`);
+
+  // Sort by score descending and guarantee at least 10 jobs
+  allScoredJobs.sort((a, b) => b.score - a.score);
+  const MIN_JOBS = 10;
+  const THRESHOLD = 40;
+  const scoredJobs = allScoredJobs.filter((j) => j.score >= THRESHOLD);
+  // If we have fewer than MIN_JOBS above threshold, backfill from the rest
+  if (scoredJobs.length < MIN_JOBS) {
+    const remaining = allScoredJobs.filter((j) => j.score < THRESHOLD);
+    const needed = MIN_JOBS - scoredJobs.length;
+    scoredJobs.push(...remaining.slice(0, needed));
+  }
+  // Cap at MIN_JOBS if total scored is less
+  const finalJobs = scoredJobs.slice(0, Math.max(MIN_JOBS, scoredJobs.length));
+  console.log(`${allScoredJobs.length} total scored, ${finalJobs.length} jobs to save (threshold=${THRESHOLD}, min=${MIN_JOBS})`);
 
   // Step 6: Deduplicate & save
   let savedCount = 0;
-  for (const { job, score } of scoredJobs) {
+  for (const { job, score } of finalJobs) {
     const hashInput = `${(job.company || "").toLowerCase().trim()}|${(job.title || "").toLowerCase().trim()}|${(job.location || "").toLowerCase().trim()}`;
     const encoder = new TextEncoder();
     const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(hashInput));
@@ -295,7 +310,7 @@ async function runScan(userId: string, authHeader: string) {
     else console.error("Insert error:", insertError);
   }
 
-  console.log(`Scan complete: ${savedCount} new jobs saved out of ${scoredJobs.length} scored`);
+  console.log(`Scan complete: ${savedCount} new jobs saved out of ${finalJobs.length} candidates`);
 }
 
 // ── Main handler ──
