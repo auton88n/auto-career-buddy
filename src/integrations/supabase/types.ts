@@ -14,7 +14,155 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      applications: {
+        Row: {
+          cover_letter_pdf_url: string | null
+          created_at: string
+          failure_reason: string | null
+          id: string
+          job_listing_id: string
+          resume_pdf_url: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cover_letter_pdf_url?: string | null
+          created_at?: string
+          failure_reason?: string | null
+          id?: string
+          job_listing_id: string
+          resume_pdf_url?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cover_letter_pdf_url?: string | null
+          created_at?: string
+          failure_reason?: string | null
+          id?: string
+          job_listing_id?: string
+          resume_pdf_url?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "applications_job_listing_id_fkey"
+            columns: ["job_listing_id"]
+            isOneToOne: false
+            referencedRelation: "job_listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_listings: {
+        Row: {
+          company: string
+          created_at: string
+          description: string | null
+          duplicate_hash: string | null
+          id: string
+          location: string | null
+          salary_info: string | null
+          score: number | null
+          source: string | null
+          status: string
+          title: string
+          updated_at: string
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          company: string
+          created_at?: string
+          description?: string | null
+          duplicate_hash?: string | null
+          id?: string
+          location?: string | null
+          salary_info?: string | null
+          score?: number | null
+          source?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          company?: string
+          created_at?: string
+          description?: string | null
+          duplicate_hash?: string | null
+          id?: string
+          location?: string | null
+          salary_info?: string | null
+          score?: number | null
+          source?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_profile: {
+        Row: {
+          created_at: string
+          excluded_companies: string[] | null
+          experience_level: string | null
+          id: string
+          industries: string[] | null
+          keyword_blacklist: string[] | null
+          location_preference: string | null
+          max_applications_per_run: number | null
+          min_salary: number | null
+          resume_file_path: string | null
+          resume_text: string | null
+          skills: string[] | null
+          target_titles: string[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          excluded_companies?: string[] | null
+          experience_level?: string | null
+          id?: string
+          industries?: string[] | null
+          keyword_blacklist?: string[] | null
+          location_preference?: string | null
+          max_applications_per_run?: number | null
+          min_salary?: number | null
+          resume_file_path?: string | null
+          resume_text?: string | null
+          skills?: string[] | null
+          target_titles?: string[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          excluded_companies?: string[] | null
+          experience_level?: string | null
+          id?: string
+          industries?: string[] | null
+          keyword_blacklist?: string[] | null
+          location_preference?: string | null
+          max_applications_per_run?: number | null
+          min_salary?: number | null
+          resume_file_path?: string | null
+          resume_text?: string | null
+          skills?: string[] | null
+          target_titles?: string[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
