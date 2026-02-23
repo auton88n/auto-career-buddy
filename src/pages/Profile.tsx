@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, X, Upload, Save } from "lucide-react";
+import { Loader2, Upload, Save } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { TagInput } from "@/components/TagInput";
 
 const Profile = () => {
   const { user } = useAuth();
@@ -21,29 +22,21 @@ const Profile = () => {
   const [targetTitles, setTargetTitles] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [locationPref, setLocationPref] = useState("remote");
-  const [minSalary, setMinSalary] = useState<string>("");
+  const [minSalary, setMinSalary] = useState("");
   const [experienceLevel, setExperienceLevel] = useState("mid");
   const [skills, setSkills] = useState<string[]>([]);
   const [excludedCompanies, setExcludedCompanies] = useState<string[]>([]);
   const [keywordBlacklist, setKeywordBlacklist] = useState<string[]>([]);
   const [maxApps, setMaxApps] = useState("15");
   const [resumeFilePath, setResumeFilePath] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
 
-  const [newTitle, setNewTitle] = useState("");
-  const [newIndustry, setNewIndustry] = useState("");
-  const [newSkill, setNewSkill] = useState("");
-  const [newExcluded, setNewExcluded] = useState("");
-  const [newBlacklist, setNewBlacklist] = useState("");
-
-  useEffect(() => {
-    if (user) loadProfile();
-  }, [user]);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
+    if (!user) return;
     const { data, error } = await supabase
       .from("user_profile")
       .select("*")
-      .eq("user_id", user!.id)
+      .eq("user_id", user.id)
       .single();
 
     if (data) {
@@ -57,14 +50,20 @@ const Profile = () => {
       setKeywordBlacklist(data.keyword_blacklist || []);
       setMaxApps(data.max_applications_per_run?.toString() || "15");
       setResumeFilePath(data.resume_file_path);
+      setNotes((data as any).notes || "");
     }
     if (error && error.code !== "PGRST116") {
       toast({ title: "Error loading profile", description: error.message, variant: "destructive" });
     }
     setLoading(false);
-  };
+  }, [user, toast]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const saveProfile = async () => {
+    if (!user) return;
     setSaving(true);
     const { error } = await supabase
       .from("user_profile")
@@ -78,13 +77,15 @@ const Profile = () => {
         excluded_companies: excludedCompanies,
         keyword_blacklist: keywordBlacklist,
         max_applications_per_run: parseInt(maxApps) || 15,
-      })
-      .eq("user_id", user!.id);
+        notes,
+      } as any)
+      .eq("user_id", user.id);
 
     if (error) {
       toast({ title: "Error saving", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Profile saved" });
+      await loadProfile();
     }
     setSaving(false);
   };
@@ -117,75 +118,13 @@ const Profile = () => {
     setUploading(false);
   };
 
-  const addTag = (
-    value: string,
-    setter: React.Dispatch<React.SetStateAction<string[]>>,
-    inputSetter: React.Dispatch<React.SetStateAction<string>>
-  ) => {
-    const trimmed = value.trim();
-    if (trimmed) {
-      setter((prev) => [...prev, trimmed]);
-      inputSetter("");
-    }
+  const addTag = (tag: string, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
+    setter((prev) => [...prev, tag]);
   };
 
-  const removeTag = (
-    index: number,
-    setter: React.Dispatch<React.SetStateAction<string[]>>
-  ) => {
+  const removeTag = (index: number, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
     setter((prev) => prev.filter((_, i) => i !== index));
   };
-
-  const TagInput = ({
-    label,
-    tags,
-    setter,
-    inputValue,
-    inputSetter,
-    placeholder,
-  }: {
-    label: string;
-    tags: string[];
-    setter: React.Dispatch<React.SetStateAction<string[]>>;
-    inputValue: string;
-    inputSetter: React.Dispatch<React.SetStateAction<string>>;
-    placeholder: string;
-  }) => (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-2 mb-2">
-        {tags.map((tag, i) => (
-          <Badge key={i} variant="secondary" className="gap-1">
-            {tag}
-            <button onClick={() => removeTag(i, setter)}>
-              <X className="h-3 w-3" />
-            </button>
-          </Badge>
-        ))}
-      </div>
-      <div className="flex gap-2">
-        <Input
-          value={inputValue}
-          onChange={(e) => inputSetter(e.target.value)}
-          placeholder={placeholder}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addTag(inputValue, setter, inputSetter);
-            }
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={() => addTag(inputValue, setter, inputSetter)}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
-  );
 
   if (loading) {
     return (
@@ -217,34 +156,29 @@ const Profile = () => {
               <TagInput
                 label="Target Job Titles"
                 tags={targetTitles}
-                setter={setTargetTitles}
-                inputValue={newTitle}
-                inputSetter={setNewTitle}
+                onAdd={(tag) => addTag(tag, setTargetTitles)}
+                onRemove={(i) => removeTag(i, setTargetTitles)}
                 placeholder="e.g. Frontend Engineer"
               />
               <TagInput
                 label="Industries"
                 tags={industries}
-                setter={setIndustries}
-                inputValue={newIndustry}
-                inputSetter={setNewIndustry}
+                onAdd={(tag) => addTag(tag, setIndustries)}
+                onRemove={(i) => removeTag(i, setIndustries)}
                 placeholder="e.g. FinTech"
               />
               <TagInput
                 label="Key Skills"
                 tags={skills}
-                setter={setSkills}
-                inputValue={newSkill}
-                inputSetter={setNewSkill}
+                onAdd={(tag) => addTag(tag, setSkills)}
+                onRemove={(i) => removeTag(i, setSkills)}
                 placeholder="e.g. React"
               />
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Location Preference</Label>
                   <Select value={locationPref} onValueChange={setLocationPref}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="remote">Remote</SelectItem>
                       <SelectItem value="hybrid">Hybrid</SelectItem>
@@ -256,9 +190,7 @@ const Profile = () => {
                 <div className="space-y-2">
                   <Label>Experience Level</Label>
                   <Select value={experienceLevel} onValueChange={setExperienceLevel}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="entry">Entry</SelectItem>
                       <SelectItem value="mid">Mid</SelectItem>
@@ -301,18 +233,33 @@ const Profile = () => {
               <TagInput
                 label="Excluded Companies"
                 tags={excludedCompanies}
-                setter={setExcludedCompanies}
-                inputValue={newExcluded}
-                inputSetter={setNewExcluded}
+                onAdd={(tag) => addTag(tag, setExcludedCompanies)}
+                onRemove={(i) => removeTag(i, setExcludedCompanies)}
                 placeholder="e.g. Meta"
               />
               <TagInput
                 label="Keyword Blacklist"
                 tags={keywordBlacklist}
-                setter={setKeywordBlacklist}
-                inputValue={newBlacklist}
-                inputSetter={setNewBlacklist}
+                onAdd={(tag) => addTag(tag, setKeywordBlacklist)}
+                onRemove={(i) => removeTag(i, setKeywordBlacklist)}
                 placeholder="e.g. unpaid"
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Memory & Notes</CardTitle>
+              <CardDescription>
+                Personal notes, context, and preferences the AI should remember across scans
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. I prefer startups over large corporations. I'm relocating to Austin in 3 months. Don't apply to companies with less than 50 employees..."
+                className="min-h-[120px]"
               />
             </CardContent>
           </Card>

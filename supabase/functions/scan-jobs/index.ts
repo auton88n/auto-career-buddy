@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
     const keywordBlacklist: string[] = profile.keyword_blacklist || [];
     const minSalary: number | null = profile.min_salary;
     const experienceLevel: string = profile.experience_level || "mid";
+    const userNotes: string = profile.notes || "";
 
     if (targetTitles.length === 0) {
       return new Response(
@@ -304,7 +305,7 @@ Candidate Profile:
 - Skills: ${skills.join(", ")}
 - Location preference: ${locationPref}
 - Minimum salary: ${minSalary ? `$${minSalary}` : "Not specified"}
-- Experience level: ${experienceLevel}
+- Experience level: ${experienceLevel}${userNotes ? `\n- Personal notes/preferences: ${userNotes}` : ""}
 
 Job:
 - Title: ${job.title}
@@ -318,7 +319,7 @@ Scoring criteria:
 - Remote preference (20pts): Does location match preference?
 - Salary match (15pts): Does salary meet minimum?
 - Skills match (20pts): Does description mention candidate skills?
-- Company fit (15pts): Industry/company relevance`;
+- Company fit (15pts): Industry/company relevance and personal preferences`;
 
       let score = 50; // default
       try {

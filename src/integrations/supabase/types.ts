@@ -120,6 +120,7 @@ export type Database = {
           location_preference: string | null
           max_applications_per_run: number | null
           min_salary: number | null
+          notes: string | null
           resume_file_path: string | null
           resume_text: string | null
           skills: string[] | null
@@ -137,6 +138,7 @@ export type Database = {
           location_preference?: string | null
           max_applications_per_run?: number | null
           min_salary?: number | null
+          notes?: string | null
           resume_file_path?: string | null
           resume_text?: string | null
           skills?: string[] | null
@@ -154,6 +156,7 @@ export type Database = {
           location_preference?: string | null
           max_applications_per_run?: number | null
           min_salary?: number | null
+          notes?: string | null
           resume_file_path?: string | null
           resume_text?: string | null
           skills?: string[] | null
