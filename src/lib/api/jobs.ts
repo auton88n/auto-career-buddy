@@ -2,9 +2,12 @@ import { supabase } from "@/integrations/supabase/client";
 
 export interface ScanResult {
   success: boolean;
+  queries_run?: number;
+  raw_results?: number;
   jobs_found?: number;
   jobs_extracted?: number;
   jobs_filtered?: number;
+  jobs_scored?: number;
   jobs_saved?: number;
   message?: string;
   error?: string;
