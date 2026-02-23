@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Briefcase, CheckCircle, Clock, AlertTriangle, Search, Loader2,
   ExternalLink, ThumbsUp, SkipForward, FileText, Copy, Send,
-  XCircle, FileCheck,
+  FileCheck, Download, Printer,
 } from "lucide-react";
 import { jobsApi, JobListing } from "@/lib/api/jobs";
 import { useToast } from "@/hooks/use-toast";
@@ -27,7 +27,7 @@ const statusBadge = (status: string) => {
     skipped: { label: "Skipped", variant: "outline" },
     manual_required: { label: "Manual", variant: "destructive" },
     rejected: { label: "Rejected", variant: "outline" },
-    generating_docs: { label: "Generating...", variant: "outline", className: "border-info text-info" },
+    generating_docs: { label: "Generating...", variant: "outline", className: "border-info text-info animate-pulse" },
     ready_to_apply: { label: "Ready", variant: "outline", className: "border-success text-success" },
     failed: { label: "Failed", variant: "destructive" },
   };
@@ -35,10 +35,54 @@ const statusBadge = (status: string) => {
   return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
 };
 
+function generatePrintableHTML(content: string, title: string, jobTitle: string, company: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; padding: 40px 60px; color: #1a1a1a; line-height: 1.6; max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; color: #111; }
+  h2 { font-size: 16px; margin-top: 20px; margin-bottom: 8px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  h3 { font-size: 14px; margin-top: 12px; margin-bottom: 4px; color: #444; }
+  p { margin-bottom: 8px; font-size: 13px; }
+  ul { margin-left: 20px; margin-bottom: 8px; }
+  li { font-size: 13px; margin-bottom: 4px; }
+  .header-meta { font-size: 12px; color: #666; margin-bottom: 20px; }
+  @media print {
+    body { padding: 20px 40px; }
+    @page { margin: 0.5in; }
+  }
+</style></head>
+<body>
+<div class="header-meta">Tailored for: ${jobTitle} at ${company}</div>
+${content.split('\n').map(line => {
+    if (line.startsWith('# ')) return `<h1>${line.slice(2)}</h1>`;
+    if (line.startsWith('## ')) return `<h2>${line.slice(3)}</h2>`;
+    if (line.startsWith('### ')) return `<h3>${line.slice(4)}</h3>`;
+    if (line.startsWith('- ') || line.startsWith('• ')) return `<li>${line.slice(2)}</li>`;
+    if (line.startsWith('* ')) return `<li>${line.slice(2)}</li>`;
+    if (line.trim() === '') return '<br/>';
+    return `<p>${line}</p>`;
+  }).join('\n')}
+</body></html>`;
+}
+
+function openPrintableDocument(content: string, title: string, jobTitle: string, company: string) {
+  const html = generatePrintableHTML(content, title, jobTitle, company);
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+  }
+}
+
 const Index = () => {
   const { toast } = useToast();
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [scanProgress, setScanProgress] = useState<string | null>(null);
+  const [applyProgress, setApplyProgress] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobListing[]>([]);
   const [counts, setCounts] = useState({
     total: 0, pending: 0, applied: 0, approved: 0,
@@ -70,25 +114,23 @@ const Index = () => {
 
   const handleScan = async () => {
     setScanning(true);
-    toast({ title: "Scanning for jobs...", description: "This may take a minute." });
+    setScanProgress("Searching for jobs...");
     try {
       const result = await jobsApi.scanJobs();
       if (result.success) {
         toast({
-          title: "Scan started",
-          description: result.message || "Jobs will appear shortly — the page will refresh automatically.",
+          title: "Scan complete!",
+          description: result.message || `Found ${result.jobs_saved} new jobs.`,
         });
-        let polls = 0;
-        const interval = setInterval(async () => {
-          polls++;
-          await loadData();
-          if (polls >= 8) clearInterval(interval);
-        }, 15000);
+        setScanProgress(null);
+        await loadData();
       } else {
         toast({ title: "Scan failed", description: result.error, variant: "destructive" });
+        setScanProgress(null);
       }
     } catch (e: any) {
       toast({ title: "Scan error", description: e.message, variant: "destructive" });
+      setScanProgress(null);
     } finally {
       setScanning(false);
     }
@@ -96,25 +138,23 @@ const Index = () => {
 
   const handleApply = async () => {
     setApplying(true);
-    toast({ title: "Generating documents...", description: "AI is tailoring your resume & cover letter for each approved job." });
+    setApplyProgress("Generating tailored documents...");
     try {
       const result = await jobsApi.applyToJobs();
       if (result.success) {
         toast({
-          title: "Generation started",
-          description: result.message || "Documents will be ready shortly.",
+          title: "Documents generated!",
+          description: result.message || "Your tailored resume and cover letter are ready.",
         });
-        let polls = 0;
-        const interval = setInterval(async () => {
-          polls++;
-          await loadData();
-          if (polls >= 12) clearInterval(interval);
-        }, 10000);
+        setApplyProgress(null);
+        await loadData();
       } else {
         toast({ title: "Apply failed", description: result.error, variant: "destructive" });
+        setApplyProgress(null);
       }
     } catch (e: any) {
       toast({ title: "Apply error", description: e.message, variant: "destructive" });
+      setApplyProgress(null);
     } finally {
       setApplying(false);
     }
@@ -145,8 +185,8 @@ const Index = () => {
 
   const stats = [
     { label: "Jobs Found", value: counts.total, icon: Briefcase, color: "text-info" },
-    { label: "Applied", value: counts.applied, icon: CheckCircle, color: "text-success" },
     { label: "Pending", value: counts.pending, icon: Clock, color: "text-primary" },
+    { label: "Approved", value: counts.approved, icon: ThumbsUp, color: "text-warning" },
     { label: "Ready", value: counts.ready_to_apply, icon: FileCheck, color: "text-success" },
   ];
 
@@ -170,6 +210,19 @@ const Index = () => {
             </Button>
           </div>
         </div>
+
+        {/* Progress indicators */}
+        {(scanProgress || applyProgress) && (
+          <Card className="mb-4 border-info/30 bg-info/5">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-info" />
+              <div>
+                <p className="font-medium text-sm">{scanProgress || applyProgress}</p>
+                <p className="text-xs text-muted-foreground">This may take a minute, please wait...</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
@@ -316,7 +369,7 @@ const Index = () => {
               <TabsTrigger value="cover">Cover Letter</TabsTrigger>
             </TabsList>
             <TabsContent value="resume">
-              <div className="flex justify-end mb-2">
+              <div className="flex justify-end gap-2 mb-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -326,15 +379,26 @@ const Index = () => {
                 >
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => docsDialog.resume && docsDialog.job && openPrintableDocument(
+                    docsDialog.resume, "Resume", docsDialog.job.title, docsDialog.job.company
+                  )}
+                  disabled={!docsDialog.resume}
+                >
+                  <Printer className="h-3 w-3" /> Print / Save PDF
+                </Button>
               </div>
               <ScrollArea className="h-[400px] rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm font-mono">
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed">
                   {docsDialog.resume || "No resume generated yet."}
                 </pre>
               </ScrollArea>
             </TabsContent>
             <TabsContent value="cover">
-              <div className="flex justify-end mb-2">
+              <div className="flex justify-end gap-2 mb-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -344,9 +408,20 @@ const Index = () => {
                 >
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => docsDialog.coverLetter && docsDialog.job && openPrintableDocument(
+                    docsDialog.coverLetter, "Cover Letter", docsDialog.job.title, docsDialog.job.company
+                  )}
+                  disabled={!docsDialog.coverLetter}
+                >
+                  <Printer className="h-3 w-3" /> Print / Save PDF
+                </Button>
               </div>
               <ScrollArea className="h-[400px] rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm font-mono">
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed">
                   {docsDialog.coverLetter || "No cover letter generated yet."}
                 </pre>
               </ScrollArea>

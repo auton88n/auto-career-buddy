@@ -13,6 +13,16 @@ export interface ScanResult {
   error?: string;
 }
 
+export interface ApplyResult {
+  success: boolean;
+  jobs_processed?: number;
+  successful?: number;
+  failed?: number;
+  results?: { id: string; company: string; title: string; status: string; error?: string }[];
+  message?: string;
+  error?: string;
+}
+
 export interface JobListing {
   id: string;
   company: string;
@@ -87,7 +97,7 @@ export const jobsApi = {
     if (error) throw error;
   },
 
-  async applyToJobs(jobIds?: string[]): Promise<{ success: boolean; message?: string; error?: string }> {
+  async applyToJobs(jobIds?: string[]): Promise<ApplyResult> {
     const { data, error } = await supabase.functions.invoke("apply-jobs", {
       body: { job_ids: jobIds },
     });

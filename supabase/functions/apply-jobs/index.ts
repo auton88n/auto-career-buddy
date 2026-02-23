@@ -17,10 +17,7 @@ async function generateDocs(
   job: any,
   profile: any,
   apiKey: string,
-  db: any,
 ): Promise<{ resume: string; coverLetter: string }> {
-  await appendLog(db, job.id, "generating_docs", "Starting document generation");
-
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -29,26 +26,32 @@ async function generateDocs(
       messages: [
         {
           role: "system",
-          content: `You are a professional career consultant. Generate a tailored resume and cover letter for the candidate applying to a specific job. The resume should highlight relevant skills and experience. The cover letter should be personalized for the company and role. Use professional formatting with clear sections.`,
+          content: `You are a professional career consultant. Generate a tailored resume and cover letter for the candidate.
+
+For the resume: Create a professional, ATS-friendly resume with clear sections (Summary, Experience, Skills, Education). Tailor it to highlight the most relevant experience for the target job. Use bullet points with quantified achievements where possible.
+
+For the cover letter: Write a compelling, personalized cover letter addressed to the hiring team. Open with enthusiasm for the specific role and company. Highlight 2-3 key qualifications that match the job. Close with a strong call to action.
+
+Both documents should be well-formatted plain text that reads professionally.`,
         },
         {
           role: "user",
-          content: `Generate a tailored resume and cover letter for this application.
+          content: `Generate a tailored resume and cover letter.
 
 CANDIDATE PROFILE:
-- Resume: ${profile.resume_text || "Not provided"}
-- Skills: ${(profile.skills || []).join(", ") || "Not specified"}
-- Target Titles: ${(profile.target_titles || []).join(", ") || "Not specified"}
-- Experience Level: ${profile.experience_level || "mid"}
-- Location Preference: ${profile.location_preference || "remote"}
-- Notes: ${profile.notes || "None"}
+${profile.resume_text ? `Resume:\n${profile.resume_text}` : "No resume provided - create a general professional resume based on the skills and titles below."}
+Skills: ${(profile.skills || []).join(", ") || "Not specified"}
+Target Titles: ${(profile.target_titles || []).join(", ") || "Not specified"}
+Experience Level: ${profile.experience_level || "mid"}
+Location: ${profile.location_preference || "remote"}
+${profile.notes ? `Additional Notes: ${profile.notes}` : ""}
 
-JOB DETAILS:
-- Company: ${job.company}
-- Title: ${job.title}
-- Location: ${job.location || "Not specified"}
-- Description: ${(job.description || "Not provided").substring(0, 1500)}
-- Salary: ${job.salary_info || "Not specified"}`,
+JOB:
+Company: ${job.company}
+Title: ${job.title}
+Location: ${job.location || "Not specified"}
+Description: ${(job.description || "Not provided").substring(0, 2000)}
+Salary: ${job.salary_info || "Not specified"}`,
         },
       ],
       tools: [{
@@ -61,11 +64,11 @@ JOB DETAILS:
             properties: {
               tailored_resume: {
                 type: "string",
-                description: "Full tailored resume text, formatted with sections",
+                description: "Complete tailored resume text with professional formatting",
               },
               cover_letter: {
                 type: "string",
-                description: "Full cover letter text, personalized for the company and role",
+                description: "Complete cover letter text personalized for the company and role",
               },
             },
             required: ["tailored_resume", "cover_letter"],
@@ -93,23 +96,26 @@ JOB DETAILS:
   };
 }
 
-async function processJobs(userId: string) {
+interface ProcessedJob {
+  id: string;
+  company: string;
+  title: string;
+  status: string;
+  error?: string;
+}
+
+async function processJobs(userId: string): Promise<ProcessedJob[]> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
   const db = createClient(supabaseUrl, supabaseServiceKey);
 
-  // Get user profile
   const { data: profile } = await db.from("user_profile").select("*").eq("user_id", userId).single();
-  if (!profile) {
-    console.error("No user profile found");
-    return;
-  }
+  if (!profile) throw new Error("No user profile found");
 
   const maxApps = profile.max_applications_per_run || 15;
 
-  // Get approved jobs
   const { data: approvedJobs, error } = await db
     .from("job_listings")
     .select("*")
@@ -118,22 +124,18 @@ async function processJobs(userId: string) {
     .order("score", { ascending: false })
     .limit(maxApps);
 
-  if (error || !approvedJobs || approvedJobs.length === 0) {
-    console.log("No approved jobs to process");
-    return;
-  }
+  if (error) throw error;
+  if (!approvedJobs || approvedJobs.length === 0) return [];
 
-  console.log(`Processing ${approvedJobs.length} approved jobs`);
+  const results: ProcessedJob[] = [];
 
   for (const job of approvedJobs) {
     try {
-      // Update status to generating_docs
       await db.from("job_listings").update({ status: "generating_docs" }).eq("id", job.id);
+      await appendLog(db, job.id, "generating_docs", "Starting document generation");
 
-      // Generate docs
-      const docs = await generateDocs(job, profile, LOVABLE_API_KEY, db);
+      const docs = await generateDocs(job, profile, LOVABLE_API_KEY);
 
-      // Save docs and update status
       await db.from("job_listings").update({
         tailored_resume_text: docs.resume,
         cover_letter_text: docs.coverLetter,
@@ -141,15 +143,16 @@ async function processJobs(userId: string) {
       }).eq("id", job.id);
 
       await appendLog(db, job.id, "ready", "Documents generated successfully");
-      console.log(`Generated docs for job ${job.id}: ${job.title} at ${job.company}`);
+      results.push({ id: job.id, company: job.company, title: job.title, status: "ready_to_apply" });
     } catch (err) {
-      console.error(`Failed to process job ${job.id}:`, err);
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
       await db.from("job_listings").update({ status: "failed" }).eq("id", job.id);
-      await appendLog(db, job.id, "failed", err instanceof Error ? err.message : "Unknown error");
+      await appendLog(db, job.id, "failed", errorMsg);
+      results.push({ id: job.id, company: job.company, title: job.title, status: "failed", error: errorMsg });
     }
   }
 
-  console.log("All jobs processed");
+  return results;
 }
 
 Deno.serve(async (req) => {
@@ -187,16 +190,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Start background processing
-    EdgeRuntime.waitUntil(
-      processJobs(user.id).catch((err) => {
-        console.error("Background apply failed:", err);
-      })
-    );
+    // Process synchronously - user sees results immediately
+    const results = await processJobs(user.id);
+
+    const successful = results.filter((r) => r.status === "ready_to_apply").length;
+    const failed = results.filter((r) => r.status === "failed").length;
 
     return new Response(JSON.stringify({
       success: true,
-      message: "Document generation started. Jobs will update to 'ready_to_apply' shortly.",
+      jobs_processed: results.length,
+      successful,
+      failed,
+      results,
+      message: `Generated documents for ${successful} job(s)${failed > 0 ? `, ${failed} failed` : ""}.`,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Apply error:", error);

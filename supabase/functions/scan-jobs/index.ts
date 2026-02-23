@@ -188,7 +188,14 @@ async function scoreJobsBatch(
 }
 
 // ── Background scan processor ──
-async function runScan(userId: string, authHeader: string) {
+async function runScan(userId: string, authHeader: string): Promise<{
+  queries_run: number;
+  raw_results: number;
+  jobs_extracted: number;
+  jobs_filtered: number;
+  jobs_scored: number;
+  jobs_saved: number;
+}> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY")!;
@@ -196,7 +203,7 @@ async function runScan(userId: string, authHeader: string) {
 
   const db = createClient(supabaseUrl, supabaseServiceKey);
   const { data: profile } = await db.from("user_profile").select("*").eq("user_id", userId).single();
-  if (!profile) { console.error("No profile"); return; }
+  if (!profile) throw new Error("No profile found");
 
   const titles: string[] = (profile.target_titles || []).length > 0 ? profile.target_titles : DEFAULT_TITLES;
   const locations: string[] = (profile.target_locations || []).length > 0 ? profile.target_locations : DEFAULT_LOCATIONS;
@@ -208,18 +215,18 @@ async function runScan(userId: string, authHeader: string) {
 
   // Step 1: Generate queries
   const queries = generateQueries(titles, locations);
-  console.log(`Generated ${queries.length} search queries`);
 
-  // Step 2: Parallel search (batches of 3 to limit concurrency)
+  // Step 2: Parallel search (batches of 3)
   const searchResults = await runInBatches(queries, 3, (q) => searchFirecrawl(q, FIRECRAWL_API_KEY));
   const allResults: any[] = [];
   for (const r of searchResults) {
     if (r.status === "fulfilled" && r.value) allResults.push(...r.value);
   }
-  console.log(`${allResults.length} raw results from ${queries.length} queries`);
-  if (allResults.length === 0) { console.log("No results found"); return; }
+  if (allResults.length === 0) {
+    return { queries_run: queries.length, raw_results: 0, jobs_extracted: 0, jobs_filtered: 0, jobs_scored: 0, jobs_saved: 0 };
+  }
 
-  // Step 3: Batch AI extraction (chunks of 15, sequential to limit CPU)
+  // Step 3: Batch AI extraction
   const chunks: any[][] = [];
   for (let i = 0; i < allResults.length; i += 15) {
     chunks.push(allResults.slice(i, i + 15));
@@ -231,7 +238,6 @@ async function runScan(userId: string, authHeader: string) {
   for (const r of extractionResults) {
     if (r.status === "fulfilled" && r.value) allJobs.push(...r.value);
   }
-  console.log(`Extracted ${allJobs.length} jobs`);
 
   // Step 4: Filter
   const blacklistLower = keywordBlacklist.map((k) => k.toLowerCase());
@@ -242,9 +248,8 @@ async function runScan(userId: string, authHeader: string) {
     if (blacklistLower.some((k) => text.includes(k))) return false;
     return true;
   });
-  console.log(`After filtering: ${filteredJobs.length} jobs`);
 
-  // Step 5: Batch scoring (groups of 8, batches of 2)
+  // Step 5: Batch scoring
   const scoreChunks: any[][] = [];
   for (let i = 0; i < filteredJobs.length; i += 8) {
     scoreChunks.push(filteredJobs.slice(i, i + 8));
@@ -253,7 +258,6 @@ async function runScan(userId: string, authHeader: string) {
     scoreJobsBatch(chunk, profile, LOVABLE_API_KEY)
   );
 
-  // Collect ALL scored jobs with their scores
   const allScoredJobs: { job: any; score: number }[] = [];
   for (let ci = 0; ci < scoreChunks.length; ci++) {
     const chunk = scoreChunks[ci];
@@ -270,17 +274,7 @@ async function runScan(userId: string, authHeader: string) {
   // Sort by score descending and guarantee at least 10 jobs
   allScoredJobs.sort((a, b) => b.score - a.score);
   const MIN_JOBS = 10;
-  const THRESHOLD = 40;
-  const scoredJobs = allScoredJobs.filter((j) => j.score >= THRESHOLD);
-  // If we have fewer than MIN_JOBS above threshold, backfill from the rest
-  if (scoredJobs.length < MIN_JOBS) {
-    const remaining = allScoredJobs.filter((j) => j.score < THRESHOLD);
-    const needed = MIN_JOBS - scoredJobs.length;
-    scoredJobs.push(...remaining.slice(0, needed));
-  }
-  // Cap at MIN_JOBS if total scored is less
-  const finalJobs = scoredJobs.slice(0, Math.max(MIN_JOBS, scoredJobs.length));
-  console.log(`${allScoredJobs.length} total scored, ${finalJobs.length} jobs to save (threshold=${THRESHOLD}, min=${MIN_JOBS})`);
+  const finalJobs = allScoredJobs.slice(0, Math.max(MIN_JOBS, allScoredJobs.length));
 
   // Step 6: Deduplicate & save
   let savedCount = 0;
@@ -307,10 +301,16 @@ async function runScan(userId: string, authHeader: string) {
       duplicate_hash: duplicateHash,
     });
     if (!insertError) savedCount++;
-    else console.error("Insert error:", insertError);
   }
 
-  console.log(`Scan complete: ${savedCount} new jobs saved out of ${finalJobs.length} candidates`);
+  return {
+    queries_run: queries.length,
+    raw_results: allResults.length,
+    jobs_extracted: allJobs.length,
+    jobs_filtered: filteredJobs.length,
+    jobs_scored: allScoredJobs.length,
+    jobs_saved: savedCount,
+  };
 }
 
 // ── Main handler ──
@@ -346,16 +346,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Start background scan and return immediately
-    EdgeRuntime.waitUntil(
-      runScan(user.id, authHeader).catch((err) => {
-        console.error("Background scan failed:", err);
-      })
-    );
+    // Run scan synchronously and return results
+    const result = await runScan(user.id, authHeader);
 
     return new Response(JSON.stringify({
       success: true,
-      message: "Scan started in background. New jobs will appear shortly — refresh in ~60 seconds.",
+      ...result,
+      message: `Found ${result.jobs_saved} new jobs (searched ${result.queries_run} queries, ${result.raw_results} results, extracted ${result.jobs_extracted}, scored ${result.jobs_scored}).`,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Scan error:", error);
