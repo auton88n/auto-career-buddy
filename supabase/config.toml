@@ -2,3 +2,6 @@ project_id = "ggcqkfxoeyurrzplgjmj"
 
 [functions.scan-jobs]
 verify_jwt = false
+
+[functions.apply-jobs]
+verify_jwt = false

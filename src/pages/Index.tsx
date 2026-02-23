@@ -7,31 +7,47 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
   Briefcase, CheckCircle, Clock, AlertTriangle, Search, Loader2,
-  ExternalLink, ThumbsUp, SkipForward,
+  ExternalLink, ThumbsUp, SkipForward, FileText, Copy, Send,
+  XCircle, FileCheck,
 } from "lucide-react";
 import { jobsApi, JobListing } from "@/lib/api/jobs";
 import { useToast } from "@/hooks/use-toast";
 
 const statusBadge = (status: string) => {
-  const map: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  const map: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
     pending: { label: "Pending", variant: "default" },
     approved: { label: "Approved", variant: "secondary" },
     applied: { label: "Applied", variant: "secondary" },
     skipped: { label: "Skipped", variant: "outline" },
     manual_required: { label: "Manual", variant: "destructive" },
     rejected: { label: "Rejected", variant: "outline" },
+    generating_docs: { label: "Generating...", variant: "outline", className: "border-info text-info" },
+    ready_to_apply: { label: "Ready", variant: "outline", className: "border-success text-success" },
+    failed: { label: "Failed", variant: "destructive" },
   };
   const config = map[status] || { label: status, variant: "outline" as const };
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+  return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
 };
 
 const Index = () => {
   const { toast } = useToast();
   const [scanning, setScanning] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [jobs, setJobs] = useState<JobListing[]>([]);
-  const [counts, setCounts] = useState({ total: 0, pending: 0, applied: 0, manual_required: 0 });
+  const [counts, setCounts] = useState({
+    total: 0, pending: 0, applied: 0, approved: 0,
+    manual_required: 0, generating_docs: 0, ready_to_apply: 0, failed: 0,
+  });
   const [loading, setLoading] = useState(true);
+  const [docsDialog, setDocsDialog] = useState<{ open: boolean; job: JobListing | null; resume: string | null; coverLetter: string | null }>({
+    open: false, job: null, resume: null, coverLetter: null,
+  });
 
   const loadData = useCallback(async () => {
     try {
@@ -62,7 +78,6 @@ const Index = () => {
           title: "Scan started",
           description: result.message || "Jobs will appear shortly — the page will refresh automatically.",
         });
-        // Poll for new jobs every 15 seconds for 2 minutes
         let polls = 0;
         const interval = setInterval(async () => {
           polls++;
@@ -79,6 +94,46 @@ const Index = () => {
     }
   };
 
+  const handleApply = async () => {
+    setApplying(true);
+    toast({ title: "Generating documents...", description: "AI is tailoring your resume & cover letter for each approved job." });
+    try {
+      const result = await jobsApi.applyToJobs();
+      if (result.success) {
+        toast({
+          title: "Generation started",
+          description: result.message || "Documents will be ready shortly.",
+        });
+        let polls = 0;
+        const interval = setInterval(async () => {
+          polls++;
+          await loadData();
+          if (polls >= 12) clearInterval(interval);
+        }, 10000);
+      } else {
+        toast({ title: "Apply failed", description: result.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Apply error", description: e.message, variant: "destructive" });
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleViewDocs = async (job: JobListing) => {
+    try {
+      const docs = await jobsApi.getApplicationDocs(job.id);
+      setDocsDialog({ open: true, job, resume: docs.resume, coverLetter: docs.coverLetter });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: `${label} copied to clipboard` });
+  };
+
   const handleStatusUpdate = async (id: string, status: string) => {
     try {
       await jobsApi.updateJobStatus(id, status);
@@ -92,7 +147,7 @@ const Index = () => {
     { label: "Jobs Found", value: counts.total, icon: Briefcase, color: "text-info" },
     { label: "Applied", value: counts.applied, icon: CheckCircle, color: "text-success" },
     { label: "Pending", value: counts.pending, icon: Clock, color: "text-primary" },
-    { label: "Manual Required", value: counts.manual_required, icon: AlertTriangle, color: "text-warning" },
+    { label: "Ready", value: counts.ready_to_apply, icon: FileCheck, color: "text-success" },
   ];
 
   return (
@@ -104,10 +159,16 @@ const Index = () => {
             <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             <p className="mt-1 text-muted-foreground">Your job application pipeline at a glance</p>
           </div>
-          <Button className="gap-2" onClick={handleScan} disabled={scanning}>
-            {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-            {scanning ? "Scanning..." : "Scan Now"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" onClick={handleApply} disabled={applying || counts.approved === 0}>
+              {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {applying ? "Generating..." : `Batch Apply (${counts.approved})`}
+            </Button>
+            <Button className="gap-2" onClick={handleScan} disabled={scanning}>
+              {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              {scanning ? "Scanning..." : "Scan Now"}
+            </Button>
+          </div>
         </div>
 
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -185,28 +246,51 @@ const Index = () => {
                         </TableCell>
                         <TableCell>{statusBadge(job.status)}</TableCell>
                         <TableCell className="text-right">
-                          {job.status === "pending" && (
-                            <div className="flex justify-end gap-1">
+                          <div className="flex justify-end gap-1">
+                            {job.status === "pending" && (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleStatusUpdate(job.id, "approved")}
+                                  title="Approve"
+                                >
+                                  <ThumbsUp className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleStatusUpdate(job.id, "skipped")}
+                                  title="Skip"
+                                >
+                                  <SkipForward className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                            {(job.status === "ready_to_apply" || job.status === "failed") && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                onClick={() => handleStatusUpdate(job.id, "approved")}
-                                title="Approve"
+                                onClick={() => handleViewDocs(job)}
+                                title="View Documents"
                               >
-                                <ThumbsUp className="h-4 w-4" />
+                                <FileText className="h-4 w-4" />
                               </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleStatusUpdate(job.id, "skipped")}
-                                title="Skip"
-                              >
-                                <SkipForward className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
+                            )}
+                            {job.status === "ready_to_apply" && job.url && (
+                              <a href={job.url} target="_blank" rel="noopener noreferrer">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Open Job URL">
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              </a>
+                            )}
+                            {job.status === "generating_docs" && (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -217,6 +301,59 @@ const Index = () => {
           </CardContent>
         </Card>
       </main>
+
+      {/* Documents Dialog */}
+      <Dialog open={docsDialog.open} onOpenChange={(open) => setDocsDialog((prev) => ({ ...prev, open }))}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>
+              {docsDialog.job ? `${docsDialog.job.title} at ${docsDialog.job.company}` : "Documents"}
+            </DialogTitle>
+          </DialogHeader>
+          <Tabs defaultValue="resume" className="mt-2">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="resume">Tailored Resume</TabsTrigger>
+              <TabsTrigger value="cover">Cover Letter</TabsTrigger>
+            </TabsList>
+            <TabsContent value="resume">
+              <div className="flex justify-end mb-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => docsDialog.resume && copyToClipboard(docsDialog.resume, "Resume")}
+                  disabled={!docsDialog.resume}
+                >
+                  <Copy className="h-3 w-3" /> Copy
+                </Button>
+              </div>
+              <ScrollArea className="h-[400px] rounded-md border p-4">
+                <pre className="whitespace-pre-wrap text-sm font-mono">
+                  {docsDialog.resume || "No resume generated yet."}
+                </pre>
+              </ScrollArea>
+            </TabsContent>
+            <TabsContent value="cover">
+              <div className="flex justify-end mb-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1"
+                  onClick={() => docsDialog.coverLetter && copyToClipboard(docsDialog.coverLetter, "Cover letter")}
+                  disabled={!docsDialog.coverLetter}
+                >
+                  <Copy className="h-3 w-3" /> Copy
+                </Button>
+              </div>
+              <ScrollArea className="h-[400px] rounded-md border p-4">
+                <pre className="whitespace-pre-wrap text-sm font-mono">
+                  {docsDialog.coverLetter || "No cover letter generated yet."}
+                </pre>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

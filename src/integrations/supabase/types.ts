@@ -60,7 +60,9 @@ export type Database = {
       }
       job_listings: {
         Row: {
+          apply_log: Json | null
           company: string
+          cover_letter_text: string | null
           created_at: string
           description: string | null
           duplicate_hash: string | null
@@ -70,13 +72,16 @@ export type Database = {
           score: number | null
           source: string | null
           status: string
+          tailored_resume_text: string | null
           title: string
           updated_at: string
           url: string | null
           user_id: string
         }
         Insert: {
+          apply_log?: Json | null
           company: string
+          cover_letter_text?: string | null
           created_at?: string
           description?: string | null
           duplicate_hash?: string | null
@@ -86,13 +91,16 @@ export type Database = {
           score?: number | null
           source?: string | null
           status?: string
+          tailored_resume_text?: string | null
           title: string
           updated_at?: string
           url?: string | null
           user_id: string
         }
         Update: {
+          apply_log?: Json | null
           company?: string
+          cover_letter_text?: string | null
           created_at?: string
           description?: string | null
           duplicate_hash?: string | null
@@ -102,6 +110,7 @@ export type Database = {
           score?: number | null
           source?: string | null
           status?: string
+          tailored_resume_text?: string | null
           title?: string
           updated_at?: string
           url?: string | null
