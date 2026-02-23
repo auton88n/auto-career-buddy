@@ -13,7 +13,6 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
   const { toast } = useToast();
   const { session, loading: authLoading } = useAuth();
 
@@ -29,26 +28,12 @@ const Login = () => {
     return <Navigate to="/" replace />;
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
-    if (isSignUp) {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: window.location.origin },
-      });
-      if (error) {
-        toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
-      } else {
-        toast({ title: "Check your email", description: "We sent you a confirmation link." });
-      }
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        toast({ title: "Login failed", description: error.message, variant: "destructive" });
-      }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      toast({ title: "Login failed", description: error.message, variant: "destructive" });
     }
     setLoading(false);
   };
@@ -61,12 +46,10 @@ const Login = () => {
             <Briefcase className="h-6 w-6 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl">AutoApply</CardTitle>
-          <CardDescription>
-            {isSignUp ? "Create your account" : "Sign in to your account"}
-          </CardDescription>
+          <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -83,28 +66,16 @@ const Login = () => {
               <Input
                 id="password"
                 type="password"
-                placeholder={isSignUp ? "Min 6 characters" : ""}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={isSignUp ? 6 : undefined}
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isSignUp ? "Sign up" : "Sign in"}
+              Sign in
             </Button>
           </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
-            <button
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="font-medium text-primary hover:underline"
-            >
-              {isSignUp ? "Sign in" : "Sign up"}
-            </button>
-          </p>
         </CardContent>
       </Card>
     </div>
