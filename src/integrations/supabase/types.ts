@@ -124,6 +124,7 @@ export type Database = {
           resume_file_path: string | null
           resume_text: string | null
           skills: string[] | null
+          target_locations: string[] | null
           target_titles: string[] | null
           updated_at: string
           user_id: string
@@ -142,6 +143,7 @@ export type Database = {
           resume_file_path?: string | null
           resume_text?: string | null
           skills?: string[] | null
+          target_locations?: string[] | null
           target_titles?: string[] | null
           updated_at?: string
           user_id: string
@@ -160,6 +162,7 @@ export type Database = {
           resume_file_path?: string | null
           resume_text?: string | null
           skills?: string[] | null
+          target_locations?: string[] | null
           target_titles?: string[] | null
           updated_at?: string
           user_id?: string

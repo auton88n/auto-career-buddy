@@ -20,6 +20,7 @@ const Profile = () => {
   const [uploading, setUploading] = useState(false);
 
   const [targetTitles, setTargetTitles] = useState<string[]>([]);
+  const [targetLocations, setTargetLocations] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
   const [locationPref, setLocationPref] = useState("remote");
   const [minSalary, setMinSalary] = useState("");
@@ -41,6 +42,7 @@ const Profile = () => {
 
     if (data) {
       setTargetTitles(data.target_titles || []);
+      setTargetLocations((data as any).target_locations || []);
       setIndustries(data.industries || []);
       setLocationPref(data.location_preference || "remote");
       setMinSalary(data.min_salary?.toString() || "");
@@ -72,6 +74,7 @@ const Profile = () => {
       .from("user_profile")
       .update({
         target_titles: targetTitles,
+        target_locations: targetLocations,
         industries,
         location_preference: locationPref,
         min_salary: minSalary ? parseInt(minSalary) : null,
@@ -161,6 +164,13 @@ const Profile = () => {
                 onAdd={(tag) => addTag(tag, setTargetTitles)}
                 onRemove={(i) => removeTag(i, setTargetTitles)}
                 placeholder="e.g. Frontend Engineer"
+              />
+              <TagInput
+                label="Target Locations"
+                tags={targetLocations}
+                onAdd={(tag) => addTag(tag, setTargetLocations)}
+                onRemove={(i) => removeTag(i, setTargetLocations)}
+                placeholder="e.g. Riyadh, Dubai, Remote"
               />
               <TagInput
                 label="Industries"

@@ -60,7 +60,7 @@ const Index = () => {
       if (result.success) {
         toast({
           title: "Scan complete",
-          description: `Found ${result.jobs_found} results, saved ${result.jobs_saved} new jobs.`,
+          description: `${result.queries_run || 0} queries → ${result.raw_results || 0} results → ${result.jobs_extracted || 0} extracted → ${result.jobs_saved || 0} new jobs saved`,
         });
         await loadData();
       } else {
