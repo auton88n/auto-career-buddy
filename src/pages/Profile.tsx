@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ const Profile = () => {
   const [resumeFilePath, setResumeFilePath] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = async () => {
     if (!user) return;
     const { data, error } = await supabase
       .from("user_profile")
@@ -50,17 +50,18 @@ const Profile = () => {
       setKeywordBlacklist(data.keyword_blacklist || []);
       setMaxApps(data.max_applications_per_run?.toString() || "15");
       setResumeFilePath(data.resume_file_path);
-      setNotes((data as any).notes || "");
+      setNotes(data.notes || "");
     }
     if (error && error.code !== "PGRST116") {
       toast({ title: "Error loading profile", description: error.message, variant: "destructive" });
     }
     setLoading(false);
-  }, [user, toast]);
+  };
 
   useEffect(() => {
     loadProfile();
-  }, [loadProfile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const saveProfile = async () => {
     if (!user) return;
@@ -78,7 +79,7 @@ const Profile = () => {
         keyword_blacklist: keywordBlacklist,
         max_applications_per_run: parseInt(maxApps) || 15,
         notes,
-      } as any)
+      })
       .eq("user_id", user.id);
 
     if (error) {
