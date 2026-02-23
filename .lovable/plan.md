@@ -1,103 +1,151 @@
 
 
-# AutoApply — Personal AI Job Application Agent
+# Expand Job Scanner: High-Volume Multi-Source Discovery
 
-A single-user production app that automatically discovers relevant jobs via Firecrawl search, generates tailored ATS-friendly resumes and cover letters using AI, and manages your entire application pipeline.
+## Problem
+The current scan-jobs edge function only runs 3 search queries with 10 results each, processes them sequentially, and caps AI extraction at 15 results. This yields ~2 jobs per scan.
 
----
-
-## Phase 1: Foundation & Profile Setup
-
-### Authentication
-- Email/password login page (no signup flow — just your account)
-- Protected routes redirecting unauthenticated users to login
-- Sign-out in the header
-
-### Database & Storage Setup
-- **Tables**: `user_profile` (preferences, resume text, settings, blacklist), `job_listings` (company, title, URL, score, status, source, duplicate hash), `applications` (linked to job, PDF URLs, status, failure reason)
-- **Storage**: Private `documents` bucket for resume uploads and generated PDFs
-- **RLS**: All tables scoped to `auth.uid() = user_id`
-- **Triggers**: Auto-create profile on signup, auto-update `updated_at` timestamps
-
-### Profile & Preferences Page
-- Form fields: target job titles (tags), industry preferences, location preference (remote/hybrid/onsite), minimum salary, experience level, key skills
-- Companies to exclude list
-- Keyword blacklist (auto-disqualifies jobs matching any keyword in title/description)
-- Max applications per run setting (default 15)
-- Master resume PDF upload → stored in Supabase Storage → text auto-extracted via edge function on upload and saved to `user_profile`
+## Solution Overview
+Rewrite the scan-jobs edge function into an aggressive, parallelized multi-source scanner that generates dozens of search queries from title/location/job-board combinations, company career page searches, and processes everything in parallel batches. Also add a `target_locations` field to the profile so the user can specify multiple target cities.
 
 ---
 
-## Phase 2: Job Discovery Engine
+## Step 1: Database Migration -- Add target_locations
 
-### Firecrawl Search-Powered Discovery
-- Edge function uses Firecrawl's search API to find jobs matching your profile criteria dynamically
-- No hardcoded sources — searches the web based on your target titles, skills, and preferences
+Add a `target_locations` text array column to `user_profile` so the user can specify multiple locations (Riyadh, Dubai, Calgary, Toronto, Vancouver, Remote).
 
-### Smart Filtering Pipeline
-1. **Blacklist check** — instant discard if any keyword matches in title or description
-2. **Duplicate detection** — hash of company + title + location, skip if already exists
-3. **AI Scoring** (Gemini 2.5 Flash via Lovable AI gateway):
-   - Role match (30pts), Remote preference (20pts), Salary match (15pts), Skills match (20pts), Company fit (15pts)
-   - Only jobs scoring **80+** are saved with status `pending`
+```sql
+ALTER TABLE public.user_profile
+  ADD COLUMN target_locations TEXT[] DEFAULT '{}'::text[];
+```
+
+Also fix the RLS policies that are still RESTRICTIVE (the previous migration may not have applied correctly):
+
+```sql
+-- Drop old restrictive policies and recreate as permissive for all 3 tables
+```
+
+## Step 2: Update Profile UI
+
+Add a `target_locations` TagInput to the Profile page, similar to the existing target_titles field. Pre-populate suggestions or just let users type freely.
+
+Update `saveProfile` and `loadProfile` to include the new field.
+
+## Step 3: Rewrite scan-jobs Edge Function
+
+This is the core change. The new architecture:
+
+### 3a. Query Generation Engine
+
+Generate search queries from combinations of:
+- **Titles** (from profile): All target titles, no cap
+- **Locations** (from profile): All target locations
+- **Job board site-filters**: Append `site:greenhouse.io`, `site:lever.co`, `site:wellfound.com`, `site:glassdoor.com`, `site:bayt.com`, `site:naukrigulf.com`, `site:wuzzuf.com`, `site:gulftalent.com`, `site:workable.com`
+- **Company career page queries**: For each company in the hardcoded lists (Saudi, UAE, Canada, Global), generate `"{company}" careers {title}` queries
+
+Formula: Each title gets searched with each location, plus site-specific searches, plus company-specific searches. This produces 100+ queries.
+
+### 3b. Parallel Search Execution
+
+- Run Firecrawl searches in parallel batches of 5 concurrent requests
+- Increase per-query limit from 10 to 20
+- Remove the `slice(0, 3)` cap entirely
+- Add error resilience: individual failures don't kill the scan
+- Cap total queries at ~80 to stay within edge function time limits
+
+### 3c. Batch AI Extraction
+
+- Instead of sending only 15 results to AI, process ALL results in chunks of 20
+- Each chunk gets its own AI extraction call
+- Run extraction calls in parallel batches of 3
+
+### 3d. Batch AI Scoring
+
+- Instead of scoring jobs one-by-one (N API calls), batch 5-10 jobs per scoring call
+- Use a structured tool call that returns an array of scores
+- This reduces AI calls from ~50 individual calls to ~5-10 batch calls
+
+### 3e. Keep All Existing Filters
+
+- Blacklist check (unchanged)
+- Company exclusion (unchanged)
+- Duplicate hash detection (unchanged)
+- Score threshold at 60 (unchanged)
+
+### 3f. Edge Function Timeout
+
+Set `wall_clock_limit` in config.toml to extend the timeout:
+
+```toml
+[functions.scan-jobs]
+verify_jwt = false
+
+[functions.scan-jobs.timeouts]
+wall_clock_limit = 300
+```
+
+## Step 4: Update Response Stats
+
+Update the scan result response to include more detail:
+- `queries_run`: how many search queries were executed
+- `raw_results`: total raw results from Firecrawl
+- `jobs_extracted`: jobs parsed by AI
+- `jobs_filtered`: after blacklist/exclusion
+- `jobs_scored`: that passed scoring threshold
+- `jobs_saved`: new unique jobs saved
+
+Update the dashboard toast to show this richer info.
 
 ---
 
-## Phase 3: AI Resume & Cover Letter Generation
+## Technical Details
 
-### Tailored Resume
-- Takes your master resume text + the specific job description
-- Gemini 2.5 Flash rewrites it to match ATS keywords from the posting
-- Constraints: one page, single-column, plain text layout, Arial/Times New Roman
-- Generated as HTML → converted to PDF server-side in an edge function → saved to Supabase Storage
+### Hardcoded Company Lists (in edge function)
 
-### Tailored Cover Letter
-- Professional, human-sounding letter specific to company and role
-- References specifics from the job description
-- One page, same clean ATS-friendly HTML-to-PDF format
-- Saved to Supabase Storage
+These are embedded as arrays in the edge function code and used to generate career-page-specific search queries:
 
----
+- **Saudi Arabia**: Lucidya, MOZN, STC, stc pay, Noon, Careem, Jahez, Tamara, Tabby, Foodics, Lean Technologies, Devoteam ME, Raqmiyat, Master-Works, EyeGo, Micronisus, Inovasys, Qiddiya, NEOM, PIF, Saudi Aramco Digital, Elm, Taqnia, Bupa Arabia, Abdul Latif Jameel, stc Digital, Telfaz11, Unifonic, Hala, Sary, Rewaa, Nana, Zid, Salla
+- **UAE**: Talabat, Careem, Binance, Deriv, Accenture UAE, ByteDance UAE, VaporVM, G42, Presight AI, e&, du Telecom, Majid Al Futtaim Tech, Noon UAE, Fetchr, Anghami, Dubizzle, Property Finder, Bayt, Kitopi, Deliveroo UAE, Pure Harvest, Sarwa, Stake, YAP, Ziina, Beehive, Bayut
+- **Canada**: Shopify, Hootsuite, Benevity, Symend, Attabotics, Miovision, Absorb Software, Decisive Farming, Aislelabs, Vendasta, Helcim, Showpass, Neo Financial, Koho, Float, Coveo, Element AI alumni, Thinkific, Unbounce, Procurify
+- **Global Remote AI**: Anthropic, OpenAI, Cohere, Scale AI, Hugging Face, Weights and Biases, Runway, Stability AI, Mistral, Perplexity, Together AI, Lovable, Vercel, Supabase, Replit, Cursor, Linear, Notion, Loom, Zapier, Make.com, Voiceflow
 
-## Phase 4: Dashboard
+### Default Search Keywords (hardcoded fallback if profile titles are sparse)
 
-### Overview Stats
-- Cards showing: total jobs found, applied, pending, manual required
-- Visual chart of application activity over time
+AI Product Manager, Technical Product Manager, AI Platform Manager, AI Solutions Consultant, Full Stack Developer AI, LLM Engineer, AI Developer, Product Lead AI, Digital Transformation Manager, AI Consultant, AI Strategist, Product Owner AI, AI Applications Manager, Generative AI Product Manager
 
-### Job List View
-- Sortable/filterable table: company, title, score, status, date, link to posting
-- **Pending jobs**: preview tailored resume & cover letter, with Approve and Skip buttons
-- **Manual required jobs**: highlighted with failure reason displayed
+### Parallel Execution Helper
 
-### Actions
-- Manual "Scan Now" button to trigger job discovery on demand
-- Approve/skip workflow for pending applications
+```text
+async function runInBatches<T>(items: T[], batchSize: number, fn: (item: T) => Promise<any>): Promise<any[]> {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+```
 
----
+### Batch Scoring Tool Schema
 
-## Phase 5: Automated Application (Orgo — Placeholder)
-- UI and data model ready for Orgo integration
-- Status tracking for `applied` vs `manual_required` with failure reasons
-- Max applications per run enforcement
-- Actual Orgo API calls to be wired in once documentation is available
+Instead of scoring one job at a time, send 5-10 jobs and get all scores back:
 
----
+```text
+{
+  name: "score_jobs_batch",
+  parameters: {
+    jobs: [{ index: number, score: number, reasoning: string }]
+  }
+}
+```
 
-## Phase 6: Nightly Automation
+### Files Changed
 
-### Scheduled Cron Job (2am nightly)
-- Scan job sources via Firecrawl search
-- Score, filter, and save qualifying jobs
-- Generate tailored resumes and cover letters for qualifying jobs
-- Log a summary of the run
-- Orgo auto-apply step ready to enable once integrated
-
----
-
-## Design
-- Clean, minimal dark-mode UI
-- Inter font for UI, JetBrains Mono for code/stats
-- Sticky header with nav (Dashboard, Profile) and sign-out button
-- Status colors: green (success/applied), amber (warning/manual), blue (accent/pending)
+1. **New migration**: Add `target_locations` column + fix RLS policies
+2. **src/pages/Profile.tsx**: Add target_locations TagInput, wire to save/load
+3. **supabase/functions/scan-jobs/index.ts**: Complete rewrite with parallel multi-source scanning
+4. **src/lib/api/jobs.ts**: Update ScanResult interface with new fields
+5. **src/pages/Index.tsx**: Update toast to show richer scan stats
+6. **supabase/config.toml**: Add timeout config for scan-jobs
 
