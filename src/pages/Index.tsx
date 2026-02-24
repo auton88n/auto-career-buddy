@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Briefcase, CheckCircle, Clock, AlertTriangle, Search, Loader2,
+  Briefcase, Clock, Search, Loader2,
   ExternalLink, ThumbsUp, SkipForward, FileText, Copy, Send,
-  FileCheck, Download, Printer,
+  FileCheck, Printer, ChevronDown, ChevronUp, Sparkles,
 } from "lucide-react";
 import { jobsApi, JobListing } from "@/lib/api/jobs";
 import { useToast } from "@/hooks/use-toast";
@@ -35,41 +35,82 @@ const statusBadge = (status: string) => {
   return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
 };
 
-function generatePrintableHTML(content: string, title: string, jobTitle: string, company: string): string {
+function generateResumeHTML(content: string, jobTitle: string, company: string): string {
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${title}</title>
+<html><head><meta charset="utf-8"><title>Resume - ${jobTitle} at ${company}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Inter', sans-serif; padding: 40px 60px; color: #1a1a1a; line-height: 1.6; max-width: 800px; margin: 0 auto; }
-  h1 { font-size: 22px; margin-bottom: 4px; color: #111; }
-  h2 { font-size: 16px; margin-top: 20px; margin-bottom: 8px; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
-  h3 { font-size: 14px; margin-top: 12px; margin-bottom: 4px; color: #444; }
-  p { margin-bottom: 8px; font-size: 13px; }
-  ul { margin-left: 20px; margin-bottom: 8px; }
-  li { font-size: 13px; margin-bottom: 4px; }
-  .header-meta { font-size: 12px; color: #666; margin-bottom: 20px; }
+  body { font-family: 'Inter', sans-serif; padding: 40px 60px; color: #1a1a1a; line-height: 1.5; max-width: 800px; margin: 0 auto; }
+  .name { font-size: 26px; font-weight: 700; text-align: center; margin-bottom: 2px; color: #111; }
+  .subtitle { font-size: 14px; font-weight: 500; text-align: center; color: #333; margin-bottom: 6px; }
+  .contact { font-size: 11px; text-align: center; color: #555; margin-bottom: 20px; }
+  h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 18px; margin-bottom: 8px; color: #111; border-bottom: 2px solid #111; padding-bottom: 3px; }
+  h3 { font-size: 13px; font-weight: 600; margin-top: 10px; margin-bottom: 2px; color: #222; }
+  .role-meta { font-size: 11px; color: #666; margin-bottom: 4px; }
+  p { margin-bottom: 6px; font-size: 12px; }
+  ul { margin-left: 18px; margin-bottom: 8px; }
+  li { font-size: 12px; margin-bottom: 3px; }
+  .skills-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .skill-tag { background: #f0f0f0; padding: 2px 8px; border-radius: 3px; font-size: 11px; }
   @media print {
     body { padding: 20px 40px; }
-    @page { margin: 0.5in; }
+    @page { margin: 0.4in; }
   }
 </style></head>
 <body>
-<div class="header-meta">Tailored for: ${jobTitle} at ${company}</div>
 ${content.split('\n').map(line => {
-    if (line.startsWith('# ')) return `<h1>${line.slice(2)}</h1>`;
-    if (line.startsWith('## ')) return `<h2>${line.slice(3)}</h2>`;
-    if (line.startsWith('### ')) return `<h3>${line.slice(4)}</h3>`;
-    if (line.startsWith('- ') || line.startsWith('• ')) return `<li>${line.slice(2)}</li>`;
-    if (line.startsWith('* ')) return `<li>${line.slice(2)}</li>`;
-    if (line.trim() === '') return '<br/>';
-    return `<p>${line}</p>`;
+    const trimmed = line.trim();
+    if (trimmed === '') return '';
+    if (trimmed.startsWith('# ')) return `<div class="name">${trimmed.slice(2)}</div>`;
+    if (trimmed.startsWith('## ')) return `<h2>${trimmed.slice(3)}</h2>`;
+    if (trimmed.startsWith('### ')) return `<h3>${trimmed.slice(4)}</h3>`;
+    if (trimmed.startsWith('#### ')) return `<div class="role-meta">${trimmed.slice(5)}</div>`;
+    if (trimmed.startsWith('> ')) return `<div class="subtitle">${trimmed.slice(2)}</div>`;
+    if (trimmed.startsWith('---')) return '';
+    if (trimmed.startsWith('📧') || trimmed.startsWith('**Contact') || (trimmed.includes('•') && trimmed.includes('@'))) return `<div class="contact">${trimmed}</div>`;
+    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) return `<li>${trimmed.slice(2)}</li>`;
+    return `<p>${trimmed}</p>`;
   }).join('\n')}
 </body></html>`;
 }
 
-function openPrintableDocument(content: string, title: string, jobTitle: string, company: string) {
-  const html = generatePrintableHTML(content, title, jobTitle, company);
+function generateCoverLetterHTML(content: string, jobTitle: string, company: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Cover Letter - ${jobTitle} at ${company}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; padding: 60px 80px; color: #1a1a1a; line-height: 1.7; max-width: 800px; margin: 0 auto; }
+  .sender { margin-bottom: 24px; }
+  .sender p { font-size: 13px; margin-bottom: 2px; }
+  .date { font-size: 13px; color: #555; margin-bottom: 20px; }
+  .greeting { font-size: 14px; font-weight: 500; margin-bottom: 16px; }
+  p { font-size: 13px; margin-bottom: 14px; }
+  .closing { margin-top: 24px; }
+  .closing p { margin-bottom: 4px; font-size: 13px; }
+  .signature { font-weight: 600; font-size: 14px; margin-top: 8px; }
+  @media print {
+    body { padding: 40px 60px; }
+    @page { margin: 0.5in; }
+  }
+</style></head>
+<body>
+${content.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (trimmed === '') return '<br/>';
+    if (trimmed.startsWith('# ')) return `<div class="signature">${trimmed.slice(2)}</div>`;
+    if (trimmed.startsWith('Dear ') || trimmed.startsWith('To ')) return `<div class="greeting">${trimmed}</div>`;
+    if (trimmed.startsWith('Sincerely') || trimmed.startsWith('Best') || trimmed.startsWith('Regards')) return `<div class="closing"><p>${trimmed}</p></div>`;
+    return `<p>${trimmed}</p>`;
+  }).join('\n')}
+</body></html>`;
+}
+
+function openPrintableDocument(content: string, type: "resume" | "cover", jobTitle: string, company: string) {
+  const html = type === "resume"
+    ? generateResumeHTML(content, jobTitle, company)
+    : generateCoverLetterHTML(content, jobTitle, company);
   const win = window.open('', '_blank');
   if (win) {
     win.document.write(html);
@@ -81,6 +122,7 @@ const Index = () => {
   const { toast } = useToast();
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
   const [scanProgress, setScanProgress] = useState<string | null>(null);
   const [applyProgress, setApplyProgress] = useState<string | null>(null);
   const [jobs, setJobs] = useState<JobListing[]>([]);
@@ -89,6 +131,7 @@ const Index = () => {
     manual_required: 0, generating_docs: 0, ready_to_apply: 0, failed: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [docsDialog, setDocsDialog] = useState<{ open: boolean; job: JobListing | null; resume: string | null; coverLetter: string | null }>({
     open: false, job: null, resume: null, coverLetter: null,
   });
@@ -118,10 +161,7 @@ const Index = () => {
     try {
       const result = await jobsApi.scanJobs();
       if (result.success) {
-        toast({
-          title: "Scan complete!",
-          description: result.message || `Found ${result.jobs_saved} new jobs.`,
-        });
+        toast({ title: "Scan complete!", description: result.message || `Found ${result.jobs_saved} new jobs.` });
         setScanProgress(null);
         await loadData();
       } else {
@@ -142,10 +182,7 @@ const Index = () => {
     try {
       const result = await jobsApi.applyToJobs();
       if (result.success) {
-        toast({
-          title: "Documents generated!",
-          description: result.message || "Your tailored resume and cover letter are ready.",
-        });
+        toast({ title: "Documents generated!", description: result.message || "Your tailored resume and cover letter are ready." });
         setApplyProgress(null);
         await loadData();
       } else {
@@ -157,6 +194,23 @@ const Index = () => {
       setApplyProgress(null);
     } finally {
       setApplying(false);
+    }
+  };
+
+  const handleGenerateSingle = async (job: JobListing) => {
+    setGeneratingJobId(job.id);
+    try {
+      const result = await jobsApi.applyToJobs([job.id]);
+      if (result.success) {
+        toast({ title: "Documents ready!", description: `Resume & cover letter generated for ${job.title} at ${job.company}.` });
+        await loadData();
+      } else {
+        toast({ title: "Generation failed", description: result.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setGeneratingJobId(null);
     }
   };
 
@@ -211,7 +265,6 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Progress indicators */}
         {(scanProgress || applyProgress) && (
           <Card className="mb-4 border-info/30 bg-info/5">
             <CardContent className="flex items-center gap-3 py-4">
@@ -228,15 +281,11 @@ const Index = () => {
           {stats.map((stat) => (
             <Card key={stat.label}>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {stat.label}
-                </CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
                 <stat.icon className={`h-4 w-4 ${stat.color}`} />
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold font-mono">
-                  {loading ? "—" : stat.value}
-                </div>
+                <div className="text-3xl font-bold font-mono">{loading ? "—" : stat.value}</div>
               </CardContent>
             </Card>
           ))}
@@ -264,6 +313,7 @@ const Index = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[30px]"></TableHead>
                       <TableHead>Company</TableHead>
                       <TableHead>Title</TableHead>
                       <TableHead>Score</TableHead>
@@ -275,87 +325,100 @@ const Index = () => {
                   </TableHeader>
                   <TableBody>
                     {jobs.map((job) => (
-                      <TableRow key={job.id}>
-                        <TableCell className="font-medium">{job.company}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {job.title}
-                            {job.url && (
-                              <a
-                                href={job.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-muted-foreground hover:text-foreground"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span className="font-mono text-sm font-semibold">{job.score}</span>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {job.location || "—"}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-xs max-w-[200px]">
-                          {job.company_description ? (
-                            <span title={job.company_description}>
-                              {job.company_description.length > 80
-                                ? job.company_description.substring(0, 80) + "…"
-                                : job.company_description}
-                            </span>
-                          ) : "—"}
-                        </TableCell>
-                        <TableCell>{statusBadge(job.status)}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            {job.status === "pending" && (
-                              <>
+                      <>
+                        <TableRow key={job.id}>
+                          <TableCell className="p-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
+                              title="Show job description"
+                            >
+                              {expandedJob === job.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="font-medium">{job.company}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {job.title}
+                              {job.url && (
+                                <a href={job.url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-mono text-sm font-semibold">{job.score}</span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{job.location || "—"}</TableCell>
+                          <TableCell className="text-muted-foreground text-xs max-w-[200px]">
+                            {job.company_description ? (
+                              <span title={job.company_description}>
+                                {job.company_description.length > 80 ? job.company_description.substring(0, 80) + "…" : job.company_description}
+                              </span>
+                            ) : "—"}
+                          </TableCell>
+                          <TableCell>{statusBadge(job.status)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              {job.status === "pending" && (
+                                <>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleStatusUpdate(job.id, "approved")} title="Approve">
+                                    <ThumbsUp className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleStatusUpdate(job.id, "skipped")} title="Skip">
+                                    <SkipForward className="h-4 w-4" />
+                                  </Button>
+                                </>
+                              )}
+                              {job.status === "approved" && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
-                                  onClick={() => handleStatusUpdate(job.id, "approved")}
-                                  title="Approve"
+                                  onClick={() => handleGenerateSingle(job)}
+                                  disabled={generatingJobId === job.id}
+                                  title="Generate Resume & Cover Letter"
                                 >
-                                  <ThumbsUp className="h-4 w-4" />
+                                  {generatingJobId === job.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => handleStatusUpdate(job.id, "skipped")}
-                                  title="Skip"
-                                >
-                                  <SkipForward className="h-4 w-4" />
+                              )}
+                              {(job.status === "ready_to_apply" || job.status === "applied" || job.status === "failed") && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewDocs(job)} title="View Documents">
+                                  <FileText className="h-4 w-4" />
                                 </Button>
-                              </>
-                            )}
-                            {(job.status === "ready_to_apply" || job.status === "applied" || job.status === "failed") && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleViewDocs(job)}
-                                title="View Documents"
-                              >
-                                <FileText className="h-4 w-4" />
-                              </Button>
-                            )}
-                            {job.status === "ready_to_apply" && job.url && (
-                              <a href={job.url} target="_blank" rel="noopener noreferrer">
-                                <Button variant="ghost" size="icon" className="h-8 w-8" title="Open Job URL">
-                                  <ExternalLink className="h-4 w-4" />
-                                </Button>
-                              </a>
-                            )}
-                            {job.status === "generating_docs" && (
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                              )}
+                              {job.status === "ready_to_apply" && job.url && (
+                                <a href={job.url} target="_blank" rel="noopener noreferrer">
+                                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Open Job URL">
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Button>
+                                </a>
+                              )}
+                              {job.status === "generating_docs" && (
+                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                        {expandedJob === job.id && (
+                          <TableRow key={`${job.id}-desc`}>
+                            <TableCell colSpan={8} className="bg-muted/30 px-6 py-4">
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-semibold">Job Description</h4>
+                                <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                                  {job.description || "No description available."}
+                                </p>
+                                {job.salary_info && (
+                                  <p className="text-sm"><span className="font-medium">Salary:</span> <span className="text-muted-foreground">{job.salary_info}</span></p>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </>
                     ))}
                   </TableBody>
                 </Table>
@@ -365,7 +428,6 @@ const Index = () => {
         </Card>
       </main>
 
-      {/* Documents Dialog */}
       <Dialog open={docsDialog.open} onOpenChange={(open) => setDocsDialog((prev) => ({ ...prev, open }))}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
           <DialogHeader>
@@ -380,60 +442,28 @@ const Index = () => {
             </TabsList>
             <TabsContent value="resume">
               <div className="flex justify-end gap-2 mb-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  onClick={() => docsDialog.resume && copyToClipboard(docsDialog.resume, "Resume")}
-                  disabled={!docsDialog.resume}
-                >
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.resume && copyToClipboard(docsDialog.resume, "Resume")} disabled={!docsDialog.resume}>
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  onClick={() => docsDialog.resume && docsDialog.job && openPrintableDocument(
-                    docsDialog.resume, "Resume", docsDialog.job.title, docsDialog.job.company
-                  )}
-                  disabled={!docsDialog.resume}
-                >
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.resume && docsDialog.job && openPrintableDocument(docsDialog.resume, "resume", docsDialog.job.title, docsDialog.job.company)} disabled={!docsDialog.resume}>
                   <Printer className="h-3 w-3" /> Print / Save PDF
                 </Button>
               </div>
               <ScrollArea className="h-[400px] rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {docsDialog.resume || "No resume generated yet."}
-                </pre>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{docsDialog.resume || "No resume generated yet."}</pre>
               </ScrollArea>
             </TabsContent>
             <TabsContent value="cover">
               <div className="flex justify-end gap-2 mb-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  onClick={() => docsDialog.coverLetter && copyToClipboard(docsDialog.coverLetter, "Cover letter")}
-                  disabled={!docsDialog.coverLetter}
-                >
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.coverLetter && copyToClipboard(docsDialog.coverLetter, "Cover letter")} disabled={!docsDialog.coverLetter}>
                   <Copy className="h-3 w-3" /> Copy
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1"
-                  onClick={() => docsDialog.coverLetter && docsDialog.job && openPrintableDocument(
-                    docsDialog.coverLetter, "Cover Letter", docsDialog.job.title, docsDialog.job.company
-                  )}
-                  disabled={!docsDialog.coverLetter}
-                >
+                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.coverLetter && docsDialog.job && openPrintableDocument(docsDialog.coverLetter, "cover", docsDialog.job.title, docsDialog.job.company)} disabled={!docsDialog.coverLetter}>
                   <Printer className="h-3 w-3" /> Print / Save PDF
                 </Button>
               </div>
               <ScrollArea className="h-[400px] rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {docsDialog.coverLetter || "No cover letter generated yet."}
-                </pre>
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{docsDialog.coverLetter || "No cover letter generated yet."}</pre>
               </ScrollArea>
             </TabsContent>
           </Tabs>
