@@ -50,7 +50,7 @@ async function downloadAsPDF(text: string, filename: string) {
     const line = raw.trim();
 
     if (line === "" || line === "---") {
-      y += 2.5;
+      if (lineNum > 0) y += 2.5; // only add gap after name is written
       continue;
     }
 
