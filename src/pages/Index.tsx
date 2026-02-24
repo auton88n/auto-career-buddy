@@ -1,476 +1,383 @@
-import { useState, useEffect, useCallback } from "react";
-import { Header } from "@/components/Header";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  Briefcase, Clock, Search, Loader2,
-  ExternalLink, ThumbsUp, SkipForward, FileText, Copy, Send,
-  FileCheck, Printer, ChevronDown, ChevronUp, Sparkles,
+  Briefcase, CheckCircle, Clock, AlertTriangle, ExternalLink,
+  Loader2, Search, Download, FileText, ChevronDown, ChevronUp, Sparkles
 } from "lucide-react";
-import { jobsApi, JobListing } from "@/lib/api/jobs";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
+import type { Tables } from "@/integrations/supabase/types";
 
-const statusBadge = (status: string) => {
-  const map: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
-    pending: { label: "Pending", variant: "default" },
-    approved: { label: "Approved", variant: "secondary" },
-    applied: { label: "Applied", variant: "secondary" },
-    skipped: { label: "Skipped", variant: "outline" },
-    manual_required: { label: "Manual", variant: "destructive" },
-    rejected: { label: "Rejected", variant: "outline" },
-    generating_docs: { label: "Generating...", variant: "outline", className: "border-info text-info animate-pulse" },
-    ready_to_apply: { label: "Ready", variant: "outline", className: "border-success text-success" },
-    failed: { label: "Failed", variant: "destructive" },
-  };
-  const config = map[status] || { label: status, variant: "outline" as const };
-  return <Badge variant={config.variant} className={config.className}>{config.label}</Badge>;
+type JobListing = Tables<"job_listings">;
+
+const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  pending: { label: "Pending", variant: "outline" },
+  approved: { label: "Approved", variant: "default" },
+  skipped: { label: "Skipped", variant: "secondary" },
+  applied: { label: "Applied", variant: "default" },
+  manual_required: { label: "Manual", variant: "destructive" },
+  generating_docs: { label: "Generating...", variant: "outline" },
+  ready_to_apply: { label: "Ready", variant: "default" },
+  failed: { label: "Failed", variant: "destructive" },
 };
 
-function generateResumeHTML(content: string, jobTitle: string, company: string): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Resume - ${jobTitle} at ${company}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Inter', sans-serif; padding: 40px 60px; color: #1a1a1a; line-height: 1.5; max-width: 800px; margin: 0 auto; }
-  .name { font-size: 26px; font-weight: 700; text-align: center; margin-bottom: 2px; color: #111; }
-  .subtitle { font-size: 14px; font-weight: 500; text-align: center; color: #333; margin-bottom: 6px; }
-  .contact { font-size: 11px; text-align: center; color: #555; margin-bottom: 20px; }
-  h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 18px; margin-bottom: 8px; color: #111; border-bottom: 2px solid #111; padding-bottom: 3px; }
-  h3 { font-size: 13px; font-weight: 600; margin-top: 10px; margin-bottom: 2px; color: #222; }
-  .role-meta { font-size: 11px; color: #666; margin-bottom: 4px; }
-  p { margin-bottom: 6px; font-size: 12px; }
-  ul { margin-left: 18px; margin-bottom: 8px; }
-  li { font-size: 12px; margin-bottom: 3px; }
-  .skills-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-  .skill-tag { background: #f0f0f0; padding: 2px 8px; border-radius: 3px; font-size: 11px; }
-  @media print {
-    body { padding: 20px 40px; }
-    @page { margin: 0.4in; }
-  }
-</style></head>
-<body>
-${content.split('\n').map(line => {
-    const trimmed = line.trim();
-    if (trimmed === '') return '';
-    if (trimmed.startsWith('# ')) return `<div class="name">${trimmed.slice(2)}</div>`;
-    if (trimmed.startsWith('## ')) return `<h2>${trimmed.slice(3)}</h2>`;
-    if (trimmed.startsWith('### ')) return `<h3>${trimmed.slice(4)}</h3>`;
-    if (trimmed.startsWith('#### ')) return `<div class="role-meta">${trimmed.slice(5)}</div>`;
-    if (trimmed.startsWith('> ')) return `<div class="subtitle">${trimmed.slice(2)}</div>`;
-    if (trimmed.startsWith('---')) return '';
-    if (trimmed.startsWith('📧') || trimmed.startsWith('**Contact') || (trimmed.includes('•') && trimmed.includes('@'))) return `<div class="contact">${trimmed}</div>`;
-    if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) return `<li>${trimmed.slice(2)}</li>`;
-    return `<p>${trimmed}</p>`;
-  }).join('\n')}
-</body></html>`;
-}
+function downloadTextAsPDF(text: string, filename: string) {
+  import("jspdf").then(({ jsPDF }) => {
+    const doc = new jsPDF({ unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
+    let y = margin;
 
-function generateCoverLetterHTML(content: string, jobTitle: string, company: string): string {
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Cover Letter - ${jobTitle} at ${company}</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Inter', sans-serif; padding: 60px 80px; color: #1a1a1a; line-height: 1.7; max-width: 800px; margin: 0 auto; }
-  .sender { margin-bottom: 24px; }
-  .sender p { font-size: 13px; margin-bottom: 2px; }
-  .date { font-size: 13px; color: #555; margin-bottom: 20px; }
-  .greeting { font-size: 14px; font-weight: 500; margin-bottom: 16px; }
-  p { font-size: 13px; margin-bottom: 14px; }
-  .closing { margin-top: 24px; }
-  .closing p { margin-bottom: 4px; font-size: 13px; }
-  .signature { font-weight: 600; font-size: 14px; margin-top: 8px; }
-  @media print {
-    body { padding: 40px 60px; }
-    @page { margin: 0.5in; }
-  }
-</style></head>
-<body>
-${content.split('\n').map(line => {
-    const trimmed = line.trim();
-    if (trimmed === '') return '<br/>';
-    if (trimmed.startsWith('# ')) return `<div class="signature">${trimmed.slice(2)}</div>`;
-    if (trimmed.startsWith('Dear ') || trimmed.startsWith('To ')) return `<div class="greeting">${trimmed}</div>`;
-    if (trimmed.startsWith('Sincerely') || trimmed.startsWith('Best') || trimmed.startsWith('Regards')) return `<div class="closing"><p>${trimmed}</p></div>`;
-    return `<p>${trimmed}</p>`;
-  }).join('\n')}
-</body></html>`;
-}
+    // Clean markdown symbols from text
+    const lines = text
+      .replace(/\*\*(.+?)\*\*/g, "$1")  // bold
+      .replace(/^### /gm, "")
+      .replace(/^## /gm, "")
+      .replace(/^# /gm, "")
+      .replace(/^> /gm, "")
+      .replace(/^- /gm, "• ")
+      .split("\n");
 
-function openPrintableDocument(content: string, type: "resume" | "cover", jobTitle: string, company: string) {
-  const html = type === "resume"
-    ? generateResumeHTML(content, jobTitle, company)
-    : generateCoverLetterHTML(content, jobTitle, company);
-  const win = window.open('', '_blank');
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-  }
-}
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
 
-const Index = () => {
-  const { toast } = useToast();
-  const [scanning, setScanning] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
-  const [scanProgress, setScanProgress] = useState<string | null>(null);
-  const [applyProgress, setApplyProgress] = useState<string | null>(null);
-  const [jobs, setJobs] = useState<JobListing[]>([]);
-  const [counts, setCounts] = useState({
-    total: 0, pending: 0, applied: 0, approved: 0,
-    manual_required: 0, generating_docs: 0, ready_to_apply: 0, failed: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [expandedJob, setExpandedJob] = useState<string | null>(null);
-  const [docsDialog, setDocsDialog] = useState<{ open: boolean; job: JobListing | null; resume: string | null; coverLetter: string | null }>({
-    open: false, job: null, resume: null, coverLetter: null,
-  });
+      // Section headers (ALL CAPS lines or lines ending with :)
+      const isHeader = line.toUpperCase() === line && line.length > 2 && !line.startsWith("•");
+      const isBold = rawLine.startsWith("# ") || rawLine.startsWith("## ") || rawLine.startsWith("### ");
 
-  const loadData = useCallback(async () => {
-    try {
-      const [jobsData, countsData] = await Promise.all([
-        jobsApi.getJobs(),
-        jobsApi.getJobCounts(),
-      ]);
-      setJobs(jobsData);
-      setCounts(countsData);
-    } catch (e) {
-      console.error("Failed to load jobs:", e);
-    } finally {
-      setLoading(false);
+      if (line === "" || line === "---") {
+        y += 3;
+        continue;
+      }
+
+      if (isHeader || isBold) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        if (isHeader) {
+          // Draw underline for section headers
+          doc.line(margin, y + 1, pageWidth - margin, y + 1);
+          y += 2;
+        }
+      } else {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+      }
+
+      const wrapped = doc.splitTextToSize(line, maxWidth);
+      for (const wline of wrapped) {
+        if (y + 6 > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(wline, margin, y);
+        y += 5.5;
+      }
     }
-  }, []);
+
+    doc.save(`${filename}.pdf`);
+  });
+}
+
+export default function Index() {
+  const { user, session } = useAuth();
+  const [jobs, setJobs] = useState<JobListing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [generatingDocs, setGeneratingDocs] = useState<string | null>(null);
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
+  const [previewJob, setPreviewJob] = useState<JobListing | null>(null);
+
+  const stats = {
+    total: jobs.length,
+    pending: jobs.filter((j) => j.status === "pending").length,
+    applied: jobs.filter((j) => j.status === "applied").length,
+    manual: jobs.filter((j) => j.status === "manual_required").length,
+    ready: jobs.filter((j) => j.status === "ready_to_apply").length,
+  };
+
+  const loadJobs = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("job_listings")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+    setJobs(data || []);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (!user) return;
+    loadJobs();
+    const channel = supabase
+      .channel("job_listings_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "job_listings", filter: `user_id=eq.${user.id}` }, () => loadJobs())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
-  const handleScan = async () => {
+  const updateJobStatus = async (id: string, status: string) => {
+    await supabase.from("job_listings").update({ status }).eq("id", id);
+    setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, status } : j)));
+  };
+
+  const runScan = async () => {
+    if (!session) return;
     setScanning(true);
-    setScanProgress("Searching for jobs...");
+    toast.info("Scanning for jobs...", { description: "This may take 1-2 minutes" });
     try {
-      const result = await jobsApi.scanJobs();
-      if (result.success) {
-        toast({ title: "Scan complete!", description: result.message || `Found ${result.jobs_saved} new jobs.` });
-        setScanProgress(null);
-        await loadData();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-jobs`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Scan complete! ${data.jobs_saved} new jobs found`, {
+          description: `${data.queries_run} queries → ${data.raw_results} results → ${data.jobs_extracted} extracted → ${data.jobs_scored} scored`,
+        });
+        await loadJobs();
       } else {
-        toast({ title: "Scan failed", description: result.error, variant: "destructive" });
-        setScanProgress(null);
+        toast.error("Scan failed", { description: data.error });
       }
-    } catch (e: any) {
-      toast({ title: "Scan error", description: e.message, variant: "destructive" });
-      setScanProgress(null);
+    } catch (e) {
+      toast.error("Scan error", { description: String(e) });
     } finally {
       setScanning(false);
     }
   };
 
-  const handleApply = async () => {
-    setApplying(true);
-    setApplyProgress("Generating tailored documents...");
+  const generateDocs = async (job: JobListing) => {
+    if (!session) return;
+    setGeneratingDocs(job.id);
+    toast.info(`Generating documents for ${job.title} at ${job.company}...`);
     try {
-      const result = await jobsApi.applyToJobs();
-      if (result.success) {
-        toast({ title: "Documents generated!", description: result.message || "Your tailored resume and cover letter are ready." });
-        setApplyProgress(null);
-        await loadData();
+      await supabase.from("job_listings").update({ status: "approved" }).eq("id", job.id);
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apply-jobs`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ job_ids: [job.id] }),
+      });
+      const data = await res.json();
+      if (data.success && data.successful > 0) {
+        toast.success("Documents generated!", { description: "Resume and cover letter are ready to download" });
+        await loadJobs();
       } else {
-        toast({ title: "Apply failed", description: result.error, variant: "destructive" });
-        setApplyProgress(null);
+        toast.error("Generation failed", { description: data.results?.[0]?.error || data.error });
       }
-    } catch (e: any) {
-      toast({ title: "Apply error", description: e.message, variant: "destructive" });
-      setApplyProgress(null);
+    } catch (e) {
+      toast.error("Error", { description: String(e) });
     } finally {
-      setApplying(false);
+      setGeneratingDocs(null);
     }
   };
 
-  const handleGenerateSingle = async (job: JobListing) => {
-    setGeneratingJobId(job.id);
-    try {
-      const result = await jobsApi.applyToJobs([job.id]);
-      if (result.success) {
-        toast({ title: "Documents ready!", description: `Resume & cover letter generated for ${job.title} at ${job.company}.` });
-        await loadData();
-      } else {
-        toast({ title: "Generation failed", description: result.error, variant: "destructive" });
-      }
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setGeneratingJobId(null);
-    }
-  };
-
-  const handleViewDocs = async (job: JobListing) => {
-    try {
-      const docs = await jobsApi.getApplicationDocs(job.id);
-      setDocsDialog({ open: true, job, resume: docs.resume, coverLetter: docs.coverLetter });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
-  };
-
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title: `${label} copied to clipboard` });
-  };
-
-  const handleStatusUpdate = async (id: string, status: string) => {
-    try {
-      await jobsApi.updateJobStatus(id, status);
-      await loadData();
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    }
-  };
-
-  const stats = [
-    { label: "Jobs Found", value: counts.total, icon: Briefcase, color: "text-info" },
-    { label: "Pending", value: counts.pending, icon: Clock, color: "text-primary" },
-    { label: "Approved", value: counts.approved, icon: ThumbsUp, color: "text-warning" },
-    { label: "Ready", value: counts.ready_to_apply, icon: FileCheck, color: "text-success" },
+  const statCards = [
+    { label: "Total Found", value: stats.total, icon: Briefcase, color: "text-primary" },
+    { label: "Pending Review", value: stats.pending, icon: Clock, color: "text-yellow-500" },
+    { label: "Ready to Apply", value: stats.ready, icon: FileText, color: "text-blue-500" },
+    { label: "Applied", value: stats.applied, icon: CheckCircle, color: "text-green-500" },
+    { label: "Manual Required", value: stats.manual, icon: AlertTriangle, color: "text-red-500" },
   ];
 
-  return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="container py-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-            <p className="mt-1 text-muted-foreground">Your job application pipeline at a glance</p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" onClick={handleApply} disabled={applying || counts.approved === 0}>
-              {applying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {applying ? "Generating..." : `Batch Apply (${counts.approved})`}
-            </Button>
-            <Button className="gap-2" onClick={handleScan} disabled={scanning}>
-              {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              {scanning ? "Scanning..." : "Scan Now"}
-            </Button>
-          </div>
-        </div>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
-        {(scanProgress || applyProgress) && (
-          <Card className="mb-4 border-info/30 bg-info/5">
-            <CardContent className="flex items-center gap-3 py-4">
-              <Loader2 className="h-5 w-5 animate-spin text-info" />
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">Your job application pipeline at a glance.</p>
+        </div>
+        <Button className="gap-2" onClick={runScan} disabled={scanning}>
+          {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+          {scanning ? "Scanning..." : "Scan for Jobs"}
+        </Button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {statCards.map(({ label, value, icon: Icon, color }) => (
+          <Card key={label}>
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className={`rounded-lg bg-muted p-2.5 ${color}`}>
+                <Icon className="h-5 w-5" />
+              </div>
               <div>
-                <p className="font-medium text-sm">{scanProgress || applyProgress}</p>
-                <p className="text-xs text-muted-foreground">This may take a minute, please wait...</p>
+                <p className="text-2xl font-bold">{value}</p>
+                <p className="text-sm text-muted-foreground">{label}</p>
               </div>
             </CardContent>
           </Card>
-        )}
+        ))}
+      </div>
 
-        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {stats.map((stat) => (
-            <Card key={stat.label}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold font-mono">{loading ? "—" : stat.value}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Job Listings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="flex min-h-[200px] items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <Briefcase className="mx-auto mb-3 h-10 w-10 opacity-30" />
-                  <p>No jobs discovered yet</p>
-                  <p className="mt-1 text-sm">Click "Scan Now" to start finding jobs</p>
-                </div>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[30px]"></TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Location</TableHead>
-                      <TableHead>Company Info</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {jobs.map((job) => (
-                      <>
-                        <TableRow key={job.id}>
-                          <TableCell className="p-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
-                              title="Show job description"
-                            >
-                              {expandedJob === job.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Job Listings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {jobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Briefcase className="mb-3 h-10 w-10 text-muted-foreground/40" />
+              <p className="font-medium text-muted-foreground">No jobs found yet</p>
+              <p className="text-sm text-muted-foreground/70">Set up your profile and run a scan to discover jobs.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Company</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead>Score</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobs.map((job) => (
+                  <>
+                    <TableRow key={job.id}>
+                      <TableCell className="font-medium">{job.company}</TableCell>
+                      <TableCell>{job.title}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{job.location || "—"}</TableCell>
+                      <TableCell>
+                        <span className={`font-mono text-sm font-bold ${(job.score || 0) >= 80 ? "text-green-500" : (job.score || 0) >= 70 ? "text-yellow-500" : "text-muted-foreground"}`}>
+                          {job.score ?? "—"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={statusConfig[job.status]?.variant || "outline"}>
+                          {statusConfig[job.status]?.label || job.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(job.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1 flex-wrap">
+                          {(job.status === "pending" || job.status === "approved") && !job.tailored_resume_text && (
+                            <Button size="sm" variant="outline" className="gap-1" disabled={generatingDocs === job.id} onClick={() => generateDocs(job)}>
+                              {generatingDocs === job.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                              Generate
                             </Button>
-                          </TableCell>
-                          <TableCell className="font-medium">{job.company}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {job.title}
-                              {job.url && (
-                                <a href={job.url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
-                                  <ExternalLink className="h-3 w-3" />
-                                </a>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className="font-mono text-sm font-semibold">{job.score}</span>
-                          </TableCell>
-                          <TableCell className="text-muted-foreground text-sm">{job.location || "—"}</TableCell>
-                          <TableCell className="text-muted-foreground text-xs max-w-[200px]">
-                            {job.company_description ? (
-                              <span title={job.company_description}>
-                                {job.company_description.length > 80 ? job.company_description.substring(0, 80) + "…" : job.company_description}
-                              </span>
-                            ) : "—"}
-                          </TableCell>
-                          <TableCell>{statusBadge(job.status)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              {job.status === "pending" && (
-                                <>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleStatusUpdate(job.id, "approved")} title="Approve">
-                                    <ThumbsUp className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleStatusUpdate(job.id, "skipped")} title="Skip">
-                                    <SkipForward className="h-4 w-4" />
-                                  </Button>
-                                </>
-                              )}
-                              {job.status === "approved" && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={() => handleGenerateSingle(job)}
-                                  disabled={generatingJobId === job.id}
-                                  title="Generate Resume & Cover Letter"
-                                >
-                                  {generatingJobId === job.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                          )}
+                          {job.tailored_resume_text && (
+                            <>
+                              <Button size="sm" variant="outline" className="gap-1" onClick={() => setPreviewJob(job)}>
+                                <FileText className="h-3 w-3" /> Preview
+                              </Button>
+                              <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadTextAsPDF(job.tailored_resume_text!, `Resume_${job.company}_${job.title}`)}>
+                                <Download className="h-3 w-3" /> Resume
+                              </Button>
+                              {job.cover_letter_text && (
+                                <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadTextAsPDF(job.cover_letter_text!, `CoverLetter_${job.company}_${job.title}`)}>
+                                  <Download className="h-3 w-3" /> Cover
                                 </Button>
                               )}
-                              {(job.status === "ready_to_apply" || job.status === "applied" || job.status === "failed") && (
-                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleViewDocs(job)} title="View Documents">
-                                  <FileText className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {job.status === "ready_to_apply" && job.url && (
-                                <a href={job.url} target="_blank" rel="noopener noreferrer">
-                                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Open Job URL">
-                                    <ExternalLink className="h-4 w-4" />
-                                  </Button>
-                                </a>
-                              )}
-                              {job.status === "generating_docs" && (
-                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {expandedJob === job.id && (
-                          <TableRow key={`${job.id}-desc`}>
-                            <TableCell colSpan={8} className="bg-muted/30 px-6 py-4">
-                              <div className="space-y-2">
-                                <h4 className="text-sm font-semibold">Job Description</h4>
-                                <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                                  {job.description || "No description available."}
-                                </p>
-                                {job.salary_info && (
-                                  <p className="text-sm"><span className="font-medium">Salary:</span> <span className="text-muted-foreground">{job.salary_info}</span></p>
-                                )}
+                            </>
+                          )}
+                          {job.status === "pending" && (
+                            <>
+                              <Button size="sm" variant="default" onClick={() => updateJobStatus(job.id, "approved")}>Approve</Button>
+                              <Button size="sm" variant="ghost" onClick={() => updateJobStatus(job.id, "skipped")}>Skip</Button>
+                            </>
+                          )}
+                          {job.url && (
+                            <Button size="sm" variant="ghost" asChild>
+                              <a href={job.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" /></a>
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}>
+                            {expandedJob === job.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {expandedJob === job.id && (
+                      <TableRow key={`${job.id}-exp`}>
+                        <TableCell colSpan={7} className="bg-muted/20 p-4">
+                          <div className="space-y-3 text-sm">
+                            {job.company_description && (
+                              <div>
+                                <p className="font-semibold mb-1">About {job.company}</p>
+                                <p className="text-muted-foreground">{job.company_description}</p>
                               </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </main>
+                            )}
+                            {job.description && (
+                              <div>
+                                <p className="font-semibold mb-1">Job Description</p>
+                                <p className="text-muted-foreground whitespace-pre-wrap">{job.description.substring(0, 800)}{job.description.length > 800 ? "..." : ""}</p>
+                              </div>
+                            )}
+                            {job.salary_info && <p><span className="font-semibold">Salary:</span> {job.salary_info}</p>}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      <Dialog open={docsDialog.open} onOpenChange={(open) => setDocsDialog((prev) => ({ ...prev, open }))}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>
-              {docsDialog.job ? `${docsDialog.job.title} at ${docsDialog.job.company}` : "Documents"}
-            </DialogTitle>
-          </DialogHeader>
-          <Tabs defaultValue="resume" className="mt-2">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="resume">Tailored Resume</TabsTrigger>
-              <TabsTrigger value="cover">Cover Letter</TabsTrigger>
-            </TabsList>
-            <TabsContent value="resume">
-              <div className="flex justify-end gap-2 mb-2">
-                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.resume && copyToClipboard(docsDialog.resume, "Resume")} disabled={!docsDialog.resume}>
-                  <Copy className="h-3 w-3" /> Copy
-                </Button>
-                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.resume && docsDialog.job && openPrintableDocument(docsDialog.resume, "resume", docsDialog.job.title, docsDialog.job.company)} disabled={!docsDialog.resume}>
-                  <Printer className="h-3 w-3" /> Print / Save PDF
-                </Button>
-              </div>
-              <ScrollArea className="h-[400px] rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{docsDialog.resume || "No resume generated yet."}</pre>
-              </ScrollArea>
-            </TabsContent>
-            <TabsContent value="cover">
-              <div className="flex justify-end gap-2 mb-2">
-                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.coverLetter && copyToClipboard(docsDialog.coverLetter, "Cover letter")} disabled={!docsDialog.coverLetter}>
-                  <Copy className="h-3 w-3" /> Copy
-                </Button>
-                <Button variant="outline" size="sm" className="gap-1" onClick={() => docsDialog.coverLetter && docsDialog.job && openPrintableDocument(docsDialog.coverLetter, "cover", docsDialog.job.title, docsDialog.job.company)} disabled={!docsDialog.coverLetter}>
-                  <Printer className="h-3 w-3" /> Print / Save PDF
-                </Button>
-              </div>
-              <ScrollArea className="h-[400px] rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed">{docsDialog.coverLetter || "No cover letter generated yet."}</pre>
-              </ScrollArea>
-            </TabsContent>
-          </Tabs>
-        </DialogContent>
-      </Dialog>
+      {previewJob && (
+        <Dialog open={!!previewJob} onOpenChange={() => setPreviewJob(null)}>
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>{previewJob.title} at {previewJob.company}</DialogTitle>
+            </DialogHeader>
+            <Tabs defaultValue="resume" className="flex-1 overflow-hidden flex flex-col">
+              <TabsList className="shrink-0">
+                <TabsTrigger value="resume">Resume</TabsTrigger>
+                {previewJob.cover_letter_text && <TabsTrigger value="cover">Cover Letter</TabsTrigger>}
+              </TabsList>
+              <TabsContent value="resume" className="flex-1 overflow-auto mt-2">
+                <div className="flex justify-end gap-2 mb-3">
+                  <Button size="sm" className="gap-1" onClick={() => downloadTextAsPDF(previewJob.tailored_resume_text!, `Resume_${previewJob.company}_${previewJob.title}`)}>
+                    <Download className="h-3 w-3" /> Download PDF
+                  </Button>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm bg-muted p-4 rounded-lg leading-relaxed font-mono">{previewJob.tailored_resume_text}</pre>
+              </TabsContent>
+              {previewJob.cover_letter_text && (
+                <TabsContent value="cover" className="flex-1 overflow-auto mt-2">
+                  <div className="flex justify-end gap-2 mb-3">
+                  <Button size="sm" className="gap-1" onClick={() => downloadTextAsPDF(previewJob.cover_letter_text!, `CoverLetter_${previewJob.company}_${previewJob.title}`)}>
+                    <Download className="h-3 w-3" /> Download PDF
+                  </Button>
+                </div>
+                  <pre className="whitespace-pre-wrap text-sm bg-muted p-4 rounded-lg leading-relaxed font-mono">{previewJob.cover_letter_text}</pre>
+                </TabsContent>
+              )}
+            </Tabs>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
-};
-
-export default Index;
+}
