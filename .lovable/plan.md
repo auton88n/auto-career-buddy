@@ -1,87 +1,74 @@
 
 
-# Phase 3: Auto-Apply (Lovable AI Only) + Scan Fix
+# Fix: Document Viewing, Scan Transparency, and Company Details
 
-Two changes in one:
+## Problems Identified
 
----
-
-## Part A: Fix Scan to Guarantee 10+ High-Score Jobs
-
-**Problem**: The background scan runs many queries but the score threshold (60) and deduplication mean you often see very few results. Since it runs in the background, you can't tell what happened.
-
-**Solution**: Lower the score threshold to 40 and guarantee at least 10 jobs are saved per scan by keeping the top 10 by score even if they fall below threshold. Also add a progress log so you can see what's happening.
-
-### Changes to `supabase/functions/scan-jobs/index.ts`:
-- After scoring, sort all scored jobs by score descending
-- If fewer than 10 pass the threshold (60), backfill from remaining jobs down to score 40
-- Always save at least `min(10, total_scored_jobs)` jobs
-- Add console logs at each stage for debugging
+1. **Config.toml missing function entries** -- the `supabase/config.toml` only has the project ID, missing the `[functions.scan-jobs]` and `[functions.apply-jobs]` sections. This may cause JWT verification issues.
+2. **Scan produces too few results** (only 2 jobs found) -- running 42 queries is overkill and slow. Reducing to fewer, smarter queries and guaranteeing the top 5 results will be faster and more reliable.
+3. **No company details** -- the scan doesn't fetch company information. We need to use Firecrawl to scrape company "About" pages and summarize what they do.
+4. **Document viewing works in code but hasn't been tested** -- the Batch Apply flow is synchronous and should work, but config issues may be blocking it.
 
 ---
 
-## Part B: Auto-Apply with Lovable AI (Document Generation Only)
+## Changes
 
-Since you don't have Orgo/Gemini keys yet, this phase will:
-1. Generate a **tailored resume** and **cover letter** for each approved job using Lovable AI
-2. Store the generated documents
-3. Open the job URL so you can manually submit with the generated docs
+### 1. Fix `supabase/config.toml`
 
-### Step 1: Database Migration
+Add function configurations:
 
-Add columns to `job_listings` (simpler than creating a separate applications table):
-
-```sql
-ALTER TABLE public.job_listings
-  ADD COLUMN IF NOT EXISTS tailored_resume_text TEXT,
-  ADD COLUMN IF NOT EXISTS cover_letter_text TEXT,
-  ADD COLUMN IF NOT EXISTS apply_log JSONB DEFAULT '[]'::jsonb;
 ```
+[functions.scan-jobs]
+verify_jwt = false
 
-### Step 2: New Edge Function -- `apply-jobs`
-
-Create `supabase/functions/apply-jobs/index.ts`:
-
-- Accepts POST with optional `{ job_ids: string[] }`
-- Defaults to all jobs with status = "approved"
-- Authenticates user via Authorization header
-- Returns immediately, processes in background via `EdgeRuntime.waitUntil()`
-- For each approved job:
-  1. Update status to `generating_docs`
-  2. Fetch user profile (resume_text, skills, target_titles, notes)
-  3. Call Lovable AI (`google/gemini-3-flash-preview`) with tool calling to generate:
-     - Tailored resume text (restructured for the specific job)
-     - Cover letter text (personalized for company + role)
-  4. Save `tailored_resume_text` and `cover_letter_text` to the job row
-  5. Update status to `ready_to_apply`
-  6. Log each step in `apply_log` JSONB
-- On failure: set status to `failed`, log error
-- Respects `max_applications_per_run` from profile
-
-### Step 3: Frontend Updates
-
-**Dashboard (`src/pages/Index.tsx`)**:
-- Add "Batch Apply" button next to "Scan Now" (shows count of approved jobs)
-- New status badges: `generating_docs` (blue), `ready_to_apply` (green), `failed` (red)
-- Polling after clicking (same 15-second pattern as scan)
-- For `ready_to_apply` jobs: show buttons to view generated resume/cover letter and open the job URL
-
-**API layer (`src/lib/api/jobs.ts`)**:
-- Add `applyToJobs(jobIds?: string[])` method
-- Add `getApplicationDocs(jobId: string)` to fetch generated text
-- Update `getJobCounts()` to include new statuses
-
-**New Dialog Component**:
-- "View Documents" dialog that shows the AI-generated resume and cover letter for a job
-- Copy-to-clipboard buttons for easy pasting into application forms
-
-### Step 4: Config
-
-Add to `supabase/config.toml`:
-```text
 [functions.apply-jobs]
 verify_jwt = false
 ```
+
+### 2. Optimize Scan -- Fewer Queries, Better Results, Company Details
+
+**File: `supabase/functions/scan-jobs/index.ts`**
+
+- Reduce from 42 queries down to ~12 focused queries (top 3 titles x 4 locations)
+- Limit to best 5 jobs per scan (sorted by score descending)
+- After scoring, use Firecrawl to scrape the company website for each top job and use Lovable AI to summarize what the company does
+- Add a new `company_description` column to `job_listings` to store this info
+- Add detailed console.log at every stage so you can see progress in edge function logs
+
+### 3. Database Migration -- Add `company_description` Column
+
+```sql
+ALTER TABLE public.job_listings
+  ADD COLUMN IF NOT EXISTS company_description TEXT;
+```
+
+### 4. Update Frontend -- Show Company Details and Fix Doc Viewing
+
+**File: `src/pages/Index.tsx`**
+
+- Add a "Company Info" column or expandable row that shows the company description
+- Make sure the "View Documents" button also appears for jobs with status `applied` (not just `ready_to_apply`)
+- Add a "Description" column or tooltip showing what the company does
+- Keep the existing Print/Save PDF and Copy buttons
+
+### 5. Update Types
+
+**File: `src/integrations/supabase/types.ts`** -- add `company_description` to the job_listings type
+
+**File: `src/lib/api/jobs.ts`** -- add `company_description` to the `JobListing` interface
+
+---
+
+## Scan Flow (Synchronous, Transparent)
+
+1. User clicks "Scan Now"
+2. Frontend shows progress banner: "Searching for jobs..."
+3. Edge function runs 12 queries via Firecrawl (3 titles x 4 locations)
+4. AI extracts and scores jobs
+5. Top 5 by score are kept
+6. For each top job, Firecrawl scrapes the company website and AI summarizes what they do
+7. Jobs saved to database with company descriptions
+8. Full results returned to frontend immediately with counts
 
 ---
 
@@ -89,14 +76,10 @@ verify_jwt = false
 
 | File | Change |
 |------|--------|
-| New migration SQL | Add 3 columns to `job_listings` |
-| `supabase/functions/scan-jobs/index.ts` | Lower threshold, guarantee 10 jobs minimum |
-| `supabase/functions/apply-jobs/index.ts` | New edge function for doc generation |
-| `src/pages/Index.tsx` | Batch Apply button, new badges, doc viewer dialog |
-| `src/lib/api/jobs.ts` | New methods + updated types |
-| `supabase/config.toml` | Add apply-jobs config |
-
-## No Extra API Keys Needed
-
-Everything uses the existing `LOVABLE_API_KEY` (auto-provisioned). When you later get Orgo + Gemini keys, we can add the browser automation layer on top.
+| `supabase/config.toml` | Add function configs with verify_jwt = false |
+| New migration SQL | Add `company_description` column |
+| `supabase/functions/scan-jobs/index.ts` | Reduce to 12 queries, top 5 jobs, add company scraping |
+| `src/pages/Index.tsx` | Show company description, ensure doc viewer works |
+| `src/lib/api/jobs.ts` | Add `company_description` to interface |
+| `src/integrations/supabase/types.ts` | Update types |
 
