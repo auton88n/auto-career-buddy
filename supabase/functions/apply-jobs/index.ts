@@ -26,13 +26,34 @@ async function generateDocs(
       messages: [
         {
           role: "system",
-          content: `You are a professional career consultant. Generate a tailored resume and cover letter for the candidate.
+          content: `You are a professional career consultant. Generate a tailored resume and cover letter.
 
-For the resume: Create a professional, ATS-friendly resume with clear sections (Summary, Experience, Skills, Education). Tailor it to highlight the most relevant experience for the target job. Use bullet points with quantified achievements where possible.
+RESUME FORMAT (follow this exact structure using markdown):
+# [Full Name]
+> [Professional Title | Subtitle]
+[contact info line with • separators: email • website • phone • location • languages]
 
-For the cover letter: Write a compelling, personalized cover letter addressed to the hiring team. Open with enthusiasm for the specific role and company. Highlight 2-3 key qualifications that match the job. Close with a strong call to action.
+## PROFESSIONAL PROFILE
+[2-3 sentence summary tailored to the target job]
 
-Both documents should be well-formatted plain text that reads professionally.`,
+## WORK EXPERIENCE
+### [Job Title] | [Company] | [Dates]
+- [Achievement with quantified result]
+- [Achievement with quantified result]
+(repeat for each role, most relevant first)
+
+## EDUCATION & CERTIFICATIONS
+### [Degree] | [University] | [Dates]
+[Any certifications on separate lines]
+
+## SKILLS
+- [Category]: [comma-separated skills]
+- [Category]: [comma-separated skills]
+
+COVER LETTER FORMAT:
+Write a professional, personalized cover letter. Start with "Dear Hiring Team," or similar. 3-4 paragraphs: intro with enthusiasm for the role, 1-2 paragraphs highlighting relevant experience, closing with call to action. End with "Sincerely," and the candidate's name.
+
+IMPORTANT: Tailor BOTH documents specifically to the job description and company. Emphasize the most relevant experience.`,
         },
         {
           role: "user",
