@@ -62,6 +62,7 @@ export type Database = {
         Row: {
           apply_log: Json | null
           company: string
+          company_description: string | null
           cover_letter_text: string | null
           created_at: string
           description: string | null
@@ -81,6 +82,7 @@ export type Database = {
         Insert: {
           apply_log?: Json | null
           company: string
+          company_description?: string | null
           cover_letter_text?: string | null
           created_at?: string
           description?: string | null
@@ -100,6 +102,7 @@ export type Database = {
         Update: {
           apply_log?: Json | null
           company?: string
+          company_description?: string | null
           cover_letter_text?: string | null
           created_at?: string
           description?: string | null

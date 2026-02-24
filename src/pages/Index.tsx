@@ -268,6 +268,7 @@ const Index = () => {
                       <TableHead>Title</TableHead>
                       <TableHead>Score</TableHead>
                       <TableHead>Location</TableHead>
+                      <TableHead>Company Info</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -297,6 +298,15 @@ const Index = () => {
                         <TableCell className="text-muted-foreground text-sm">
                           {job.location || "—"}
                         </TableCell>
+                        <TableCell className="text-muted-foreground text-xs max-w-[200px]">
+                          {job.company_description ? (
+                            <span title={job.company_description}>
+                              {job.company_description.length > 80
+                                ? job.company_description.substring(0, 80) + "…"
+                                : job.company_description}
+                            </span>
+                          ) : "—"}
+                        </TableCell>
                         <TableCell>{statusBadge(job.status)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
@@ -322,7 +332,7 @@ const Index = () => {
                                 </Button>
                               </>
                             )}
-                            {(job.status === "ready_to_apply" || job.status === "failed") && (
+                            {(job.status === "ready_to_apply" || job.status === "applied" || job.status === "failed") && (
                               <Button
                                 variant="ghost"
                                 size="icon"
