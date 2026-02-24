@@ -125,25 +125,44 @@ interface ProcessedJob {
   error?: string;
 }
 
-async function processJobs(userId: string): Promise<ProcessedJob[]> {
+async function processJobs(userId: string, specificJobIds?: string[]): Promise<ProcessedJob[]> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
-  const db = createClient(supabaseUrl, supabaseServiceKey);
+  console.log("[apply-jobs] Starting processJobs for user:", userId, "specificJobIds:", specificJobIds);
 
-  const { data: profile } = await db.from("user_profile").select("*").eq("user_id", userId).single();
+  const db = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data: profile, error: profileError } = await db.from("user_profile").select("*").eq("user_id", userId).single();
+  console.log("[apply-jobs] Profile fetch:", profile ? "found" : "not found", profileError?.message || "");
   if (!profile) throw new Error("No user profile found");
 
   const maxApps = profile.max_applications_per_run || 15;
 
-  const { data: approvedJobs, error } = await db
+  let query = db
     .from("job_listings")
     .select("*")
     .eq("user_id", userId)
     .eq("status", "approved")
     .order("score", { ascending: false })
     .limit(maxApps);
+
+  if (specificJobIds && specificJobIds.length > 0) {
+    query = db
+      .from("job_listings")
+      .select("*")
+      .eq("user_id", userId)
+      .in("id", specificJobIds)
+      .in("status", ["approved"])
+      .order("score", { ascending: false });
+  }
+
+  const { data: approvedJobs, error } = await query;
+
+  console.log("[apply-jobs] Found", approvedJobs?.length || 0, "approved jobs. Error:", error?.message || "none");
 
   if (error) throw error;
   if (!approvedJobs || approvedJobs.length === 0) return [];
@@ -152,17 +171,26 @@ async function processJobs(userId: string): Promise<ProcessedJob[]> {
 
   for (const job of approvedJobs) {
     try {
-      await db.from("job_listings").update({ status: "generating_docs" }).eq("id", job.id);
+      console.log("[apply-jobs] Processing job:", job.id, job.title, "at", job.company);
+      const { error: statusErr } = await db.from("job_listings").update({ status: "generating_docs" }).eq("id", job.id);
+      if (statusErr) console.error("[apply-jobs] Status update error:", statusErr.message);
       await appendLog(db, job.id, "generating_docs", "Starting document generation");
 
       const docs = await generateDocs(job, profile, LOVABLE_API_KEY);
+      console.log("[apply-jobs] AI generated docs. Resume length:", docs.resume.length, "Cover letter length:", docs.coverLetter.length);
 
-      await db.from("job_listings").update({
+      const { error: saveErr } = await db.from("job_listings").update({
         tailored_resume_text: docs.resume,
         cover_letter_text: docs.coverLetter,
         status: "ready_to_apply",
       }).eq("id", job.id);
 
+      if (saveErr) {
+        console.error("[apply-jobs] SAVE ERROR:", saveErr.message, saveErr.details, saveErr.hint);
+        throw new Error(`Failed to save documents: ${saveErr.message}`);
+      }
+
+      console.log("[apply-jobs] Documents saved successfully for job:", job.id);
       await appendLog(db, job.id, "ready", "Documents generated successfully");
       results.push({ id: job.id, company: job.company, title: job.title, status: "ready_to_apply" });
     } catch (err) {
@@ -210,9 +238,11 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const body = await req.json().catch(() => ({}));
+    const jobIds = body.job_ids || undefined;
 
     // Process synchronously - user sees results immediately
-    const results = await processJobs(user.id);
+    const results = await processJobs(user.id, jobIds);
 
     const successful = results.filter((r) => r.status === "ready_to_apply").length;
     const failed = results.filter((r) => r.status === "failed").length;
