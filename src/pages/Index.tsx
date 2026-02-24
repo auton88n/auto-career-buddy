@@ -238,7 +238,7 @@ export default function Index() {
     setGeneratingDocs(job.id);
     toast.info(`Generating documents for ${job.title} at ${job.company}...`);
     try {
-      await supabase.from("job_listings").update({ status: "approved" }).eq("id", job.id);
+      await supabase.from("job_listings").update({ status: "approved", tailored_resume_text: null, cover_letter_text: null }).eq("id", job.id);
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apply-jobs`, {
         method: "POST",
         headers: {
@@ -357,6 +357,12 @@ export default function Index() {
                             <Button size="sm" variant="outline" className="gap-1" disabled={generatingDocs === job.id} onClick={() => generateDocs(job)}>
                               {generatingDocs === job.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                               Generate
+                            </Button>
+                          )}
+                          {job.tailored_resume_text && (
+                            <Button size="sm" variant="ghost" className="gap-1" disabled={generatingDocs === job.id} onClick={() => generateDocs(job)}>
+                              {generatingDocs === job.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                              Regen
                             </Button>
                           )}
                           {job.tailored_resume_text && (
