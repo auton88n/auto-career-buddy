@@ -27,63 +27,142 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive" },
 };
 
-function downloadTextAsPDF(text: string, filename: string) {
-  import("jspdf").then(({ jsPDF }) => {
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 20;
-    const maxWidth = pageWidth - margin * 2;
-    let y = margin;
+async function downloadAsPDF(text: string, filename: string) {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
 
-    // Clean markdown symbols from text
-    const lines = text
-      .replace(/\*\*(.+?)\*\*/g, "$1")  // bold
-      .replace(/^### /gm, "")
-      .replace(/^## /gm, "")
-      .replace(/^# /gm, "")
-      .replace(/^> /gm, "")
-      .replace(/^- /gm, "• ")
-      .split("\n");
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginL = 20;
+  const marginR = 20;
+  const marginT = 22;
+  const marginB = 20;
+  const contentW = pageW - marginL - marginR;
+  let y = marginT;
 
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
+  const addPage = () => {
+    doc.addPage();
+    y = marginT;
+  };
 
-      // Section headers (ALL CAPS lines or lines ending with :)
-      const isHeader = line.toUpperCase() === line && line.length > 2 && !line.startsWith("•");
-      const isBold = rawLine.startsWith("# ") || rawLine.startsWith("## ") || rawLine.startsWith("### ");
+  const checkY = (needed: number) => {
+    if (y + needed > pageH - marginB) addPage();
+  };
 
-      if (line === "" || line === "---") {
-        y += 3;
-        continue;
-      }
+  const lines = text.split("\n");
+  let i = 0;
 
-      if (isHeader || isBold) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        if (isHeader) {
-          // Draw underline for section headers
-          doc.line(margin, y + 1, pageWidth - margin, y + 1);
-          y += 2;
-        }
-      } else {
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-      }
+  while (i < lines.length) {
+    const raw = lines[i];
+    const line = raw.trim();
 
-      const wrapped = doc.splitTextToSize(line, maxWidth);
-      for (const wline of wrapped) {
-        if (y + 6 > pageHeight - margin) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(wline, margin, y);
-        y += 5.5;
-      }
+    // Blank line = small gap
+    if (line === "" || line === "---") {
+      y += 3;
+      i++;
+      continue;
     }
 
-    doc.save(`${filename}.pdf`);
-  });
+    // Detect NAME line (first non-empty line - larger, bold)
+    if (i === 0 || (i <= 2 && !line.startsWith("•") && line.length < 60 && !line.includes("|") && !line.includes("@"))) {
+      checkY(10);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(20, 20, 20);
+      doc.text(line, marginL, y);
+      y += 7;
+      i++;
+      continue;
+    }
+
+    // Contact / subtitle line (contains @ or phone or • separators)
+    if (line.includes("@") || line.includes("+") || (line.includes("•") && line.includes(".")) ) {
+      checkY(6);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      const wrapped = doc.splitTextToSize(line, contentW);
+      wrapped.forEach((wl: string) => {
+        checkY(5);
+        doc.text(wl, marginL, y);
+        y += 4.5;
+      });
+      i++;
+      continue;
+    }
+
+    // Section headers: **HEADER** or ALL CAPS lines
+    const boldMatch = line.match(/^\*\*(.+)\*\*$/);
+    const isAllCaps = line === line.toUpperCase() && line.length > 3 && /[A-Z]/.test(line) && !line.startsWith("•");
+
+    if (boldMatch || isAllCaps) {
+      const headerText = boldMatch ? boldMatch[1] : line;
+      y += 2;
+      checkY(8);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor(30, 30, 30);
+      doc.text(headerText.toUpperCase(), marginL, y);
+      // Underline
+      const textW = doc.getTextWidth(headerText.toUpperCase());
+      doc.setDrawColor(30, 30, 30);
+      doc.setLineWidth(0.4);
+      doc.line(marginL, y + 1, pageW - marginR, y + 1);
+      y += 6;
+      i++;
+      continue;
+    }
+
+    // Job title lines: "Title | Company | Date" pattern
+    if (line.includes("|") && !line.startsWith("•")) {
+      checkY(7);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(20, 20, 20);
+      const wrapped = doc.splitTextToSize(line, contentW);
+      wrapped.forEach((wl: string) => {
+        checkY(6);
+        doc.text(wl, marginL, y);
+        y += 5.5;
+      });
+      i++;
+      continue;
+    }
+
+    // Bullet points
+    if (line.startsWith("•") || line.startsWith("-")) {
+      checkY(5);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.setTextColor(40, 40, 40);
+      const bulletText = line.replace(/^[•\-]\s*/, "");
+      const wrapped = doc.splitTextToSize(bulletText, contentW - 5);
+      doc.text("•", marginL, y);
+      wrapped.forEach((wl: string, wi: number) => {
+        checkY(5);
+        doc.text(wl, marginL + 5, y);
+        if (wi < wrapped.length - 1) y += 4.8;
+      });
+      y += 5;
+      i++;
+      continue;
+    }
+
+    // Regular paragraph text
+    checkY(5);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(40, 40, 40);
+    const wrapped = doc.splitTextToSize(line, contentW);
+    wrapped.forEach((wl: string) => {
+      checkY(5);
+      doc.text(wl, marginL, y);
+      y += 4.8;
+    });
+    i++;
+  }
+
+  doc.save(`${filename}.pdf`);
 }
 
 export default function Index() {
@@ -289,11 +368,11 @@ export default function Index() {
                               <Button size="sm" variant="outline" className="gap-1" onClick={() => setPreviewJob(job)}>
                                 <FileText className="h-3 w-3" /> Preview
                               </Button>
-                              <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadTextAsPDF(job.tailored_resume_text!, `Resume_${job.company}_${job.title}`)}>
+                              <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadAsPDF(job.tailored_resume_text!, `Resume_${job.company}_${job.title}`)}>
                                 <Download className="h-3 w-3" /> Resume
                               </Button>
                               {job.cover_letter_text && (
-                                <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadTextAsPDF(job.cover_letter_text!, `CoverLetter_${job.company}_${job.title}`)}>
+                                <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadAsPDF(job.cover_letter_text!, `CoverLetter_${job.company}_${job.title}`)}>
                                   <Download className="h-3 w-3" /> Cover
                                 </Button>
                               )}
@@ -358,7 +437,7 @@ export default function Index() {
               </TabsList>
               <TabsContent value="resume" className="flex-1 overflow-auto mt-2">
                 <div className="flex justify-end gap-2 mb-3">
-                  <Button size="sm" className="gap-1" onClick={() => downloadTextAsPDF(previewJob.tailored_resume_text!, `Resume_${previewJob.company}_${previewJob.title}`)}>
+                  <Button size="sm" className="gap-1" onClick={() => downloadAsPDF(previewJob.tailored_resume_text!, `Resume_${previewJob.company}_${previewJob.title}`)}>
                     <Download className="h-3 w-3" /> Download PDF
                   </Button>
                 </div>
@@ -367,10 +446,10 @@ export default function Index() {
               {previewJob.cover_letter_text && (
                 <TabsContent value="cover" className="flex-1 overflow-auto mt-2">
                   <div className="flex justify-end gap-2 mb-3">
-                  <Button size="sm" className="gap-1" onClick={() => downloadTextAsPDF(previewJob.cover_letter_text!, `CoverLetter_${previewJob.company}_${previewJob.title}`)}>
-                    <Download className="h-3 w-3" /> Download PDF
-                  </Button>
-                </div>
+                    <Button size="sm" className="gap-1" onClick={() => downloadAsPDF(previewJob.cover_letter_text!, `CoverLetter_${previewJob.company}_${previewJob.title}`)}>
+                      <Download className="h-3 w-3" /> Download PDF
+                    </Button>
+                  </div>
                   <pre className="whitespace-pre-wrap text-sm bg-muted p-4 rounded-lg leading-relaxed font-mono">{previewJob.cover_letter_text}</pre>
                 </TabsContent>
               )}
