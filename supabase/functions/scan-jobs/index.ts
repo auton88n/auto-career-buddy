@@ -6,73 +6,31 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// ── Company lists for career-page queries ──
-const COMPANIES_SAUDI = ["Lucidya","MOZN","STC","stc pay","Noon","Careem","Jahez","Tamara","Tabby","Foodics","Lean Technologies","Devoteam ME","Raqmiyat","Master-Works","EyeGo","Micronisus","Inovasys","Qiddiya","NEOM","PIF","Saudi Aramco Digital","Elm","Taqnia","Bupa Arabia","Abdul Latif Jameel","stc Digital","Telfaz11","Unifonic","Hala","Sary","Rewaa","Nana","Zid","Salla"];
-const COMPANIES_UAE = ["Talabat","Careem","Binance","Deriv","Accenture UAE","ByteDance UAE","VaporVM","G42","Presight AI","e&","du Telecom","Majid Al Futtaim Tech","Noon UAE","Fetchr","Anghami","Dubizzle","Property Finder","Bayt","Kitopi","Deliveroo UAE","Pure Harvest","Sarwa","Stake","YAP","Ziina","Beehive","Bayut"];
-const COMPANIES_CANADA = ["Shopify","Hootsuite","Benevity","Symend","Attabotics","Miovision","Absorb Software","Decisive Farming","Aislelabs","Vendasta","Helcim","Showpass","Neo Financial","Koho","Float","Coveo","Thinkific","Unbounce","Procurify"];
-const COMPANIES_GLOBAL = ["Anthropic","OpenAI","Cohere","Scale AI","Hugging Face","Weights and Biases","Runway","Stability AI","Mistral","Perplexity","Together AI","Lovable","Vercel","Supabase","Replit","Cursor","Linear","Notion","Loom","Zapier","Make.com","Voiceflow"];
-const ALL_COMPANIES = [...COMPANIES_SAUDI, ...COMPANIES_UAE, ...COMPANIES_CANADA, ...COMPANIES_GLOBAL];
-
-const JOB_BOARD_SITES = [
-  "site:greenhouse.io","site:lever.co","site:wellfound.com","site:glassdoor.com",
-  "site:bayt.com","site:naukrigulf.com","site:wuzzuf.com","site:gulftalent.com","site:workable.com",
-];
-
 const DEFAULT_TITLES = [
-  "AI Product Manager","Technical Product Manager","AI Platform Manager","AI Solutions Consultant",
-  "Full Stack Developer AI","LLM Engineer","AI Developer","Product Lead AI",
-  "Digital Transformation Manager","AI Consultant","AI Strategist","Product Owner AI",
-  "AI Applications Manager","Generative AI Product Manager",
+  "AI Product Manager", "Technical Product Manager", "AI Platform Manager",
+  "Full Stack Developer AI", "LLM Engineer", "AI Developer",
 ];
 
-const DEFAULT_LOCATIONS = ["Riyadh Saudi Arabia","Dubai UAE","Abu Dhabi UAE","Calgary Canada","Toronto Canada","Vancouver Canada","Remote"];
+const DEFAULT_LOCATIONS = ["Riyadh Saudi Arabia", "Dubai UAE", "Calgary Canada", "Remote"];
 
 // ── Helpers ──
-async function runInBatches<T, R>(items: T[], batchSize: number, fn: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    const batchResults = await Promise.allSettled(batch.map(fn));
-    results.push(...batchResults);
-  }
-  return results;
-}
-
 function generateQueries(titles: string[], locations: string[]): string[] {
   const queries: string[] = [];
-
-  // Title x Location combinations (cap titles to 5, locations to 4)
-  const topTitles = titles.slice(0, 5);
+  const topTitles = titles.slice(0, 3);
   const topLocations = locations.slice(0, 4);
   for (const title of topTitles) {
     for (const loc of topLocations) {
       queries.push(`${title} ${loc} job`);
     }
   }
-
-  // Title x Job board site filters (top 3 titles x top 4 sites)
-  for (const title of topTitles.slice(0, 3)) {
-    for (const site of JOB_BOARD_SITES.slice(0, 4)) {
-      queries.push(`${title} ${site}`);
-    }
-  }
-
-  // Company career page queries (sample 10 companies)
-  const sampledCompanies = ALL_COMPANIES.sort(() => Math.random() - 0.5).slice(0, 10);
-  const mainTitle = titles[0] || "Product Manager";
-  for (const company of sampledCompanies) {
-    queries.push(`"${company}" careers ${mainTitle}`);
-  }
-
-  // Cap at 42 queries to stay well within resource limits
-  return queries.slice(0, 42);
+  return queries.slice(0, 12);
 }
 
 async function searchFirecrawl(query: string, apiKey: string): Promise<any[]> {
   const res = await fetch("https://api.firecrawl.dev/v1/search", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ query, limit: 15, scrapeOptions: { formats: ["markdown"] } }),
+    body: JSON.stringify({ query, limit: 10, scrapeOptions: { formats: ["markdown"] } }),
   });
   const data = await res.json();
   if (data.success && data.data) return data.data;
@@ -187,14 +145,44 @@ async function scoreJobsBatch(
   return jobs.map((_, i) => ({ index: i, score: 50 }));
 }
 
-// ── Background scan processor ──
-async function runScan(userId: string, authHeader: string): Promise<{
-  queries_run: number;
-  raw_results: number;
-  jobs_extracted: number;
-  jobs_filtered: number;
-  jobs_scored: number;
-  jobs_saved: number;
+async function enrichCompany(companyName: string, firecrawlKey: string, lovableKey: string): Promise<string> {
+  console.log(`[enrich] Searching for company info: ${companyName}`);
+  try {
+    const searchRes = await fetch("https://api.firecrawl.dev/v1/search", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${firecrawlKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `${companyName} company about`, limit: 3, scrapeOptions: { formats: ["markdown"] } }),
+    });
+    const searchData = await searchRes.json();
+    const pages = searchData.success && searchData.data ? searchData.data : [];
+    if (pages.length === 0) return "";
+
+    const content = pages.map((p: any) => (p.markdown || p.description || "").substring(0, 800)).join("\n\n");
+
+    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: "Summarize what this company does in 2-3 sentences. Focus on their industry, products/services, and what makes them notable. Be factual and concise." },
+          { role: "user", content: `Company: ${companyName}\n\nInfo:\n${content}` },
+        ],
+      }),
+    });
+    if (!aiRes.ok) return "";
+    const aiData = await aiRes.json();
+    return aiData.choices?.[0]?.message?.content || "";
+  } catch (e) {
+    console.error(`[enrich] Error for ${companyName}:`, e);
+    return "";
+  }
+}
+
+// ── Main scan ──
+async function runScan(userId: string): Promise<{
+  queries_run: number; raw_results: number; jobs_extracted: number;
+  jobs_filtered: number; jobs_scored: number; jobs_saved: number;
 }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -213,31 +201,38 @@ async function runScan(userId: string, authHeader: string): Promise<{
   const locationPref: string = profile.location_preference || "remote";
   const experienceLevel: string = profile.experience_level || "mid";
 
-  // Step 1: Generate queries
+  // Step 1: Generate queries (max 12)
   const queries = generateQueries(titles, locations);
+  console.log(`[scan] Step 1: Generated ${queries.length} queries`);
 
-  // Step 2: Parallel search (batches of 3)
-  const searchResults = await runInBatches(queries, 3, (q) => searchFirecrawl(q, FIRECRAWL_API_KEY));
+  // Step 2: Search (batches of 3)
+  console.log(`[scan] Step 2: Searching via Firecrawl...`);
   const allResults: any[] = [];
-  for (const r of searchResults) {
-    if (r.status === "fulfilled" && r.value) allResults.push(...r.value);
+  for (let i = 0; i < queries.length; i += 3) {
+    const batch = queries.slice(i, i + 3);
+    const batchResults = await Promise.allSettled(batch.map((q) => searchFirecrawl(q, FIRECRAWL_API_KEY)));
+    for (const r of batchResults) {
+      if (r.status === "fulfilled" && r.value) allResults.push(...r.value);
+    }
   }
+  console.log(`[scan] Step 2 done: ${allResults.length} raw results`);
+
   if (allResults.length === 0) {
     return { queries_run: queries.length, raw_results: 0, jobs_extracted: 0, jobs_filtered: 0, jobs_scored: 0, jobs_saved: 0 };
   }
 
-  // Step 3: Batch AI extraction
+  // Step 3: AI extraction (chunks of 15)
+  console.log(`[scan] Step 3: Extracting jobs via AI...`);
   const chunks: any[][] = [];
   for (let i = 0; i < allResults.length; i += 15) {
     chunks.push(allResults.slice(i, i + 15));
   }
-  const extractionResults = await runInBatches(chunks, 2, (chunk) =>
-    extractJobsBatch(chunk, titles, skills, locationPref, experienceLevel, LOVABLE_API_KEY)
-  );
   let allJobs: any[] = [];
-  for (const r of extractionResults) {
-    if (r.status === "fulfilled" && r.value) allJobs.push(...r.value);
+  for (const chunk of chunks) {
+    const jobs = await extractJobsBatch(chunk, titles, skills, locationPref, experienceLevel, LOVABLE_API_KEY);
+    allJobs.push(...jobs);
   }
+  console.log(`[scan] Step 3 done: ${allJobs.length} jobs extracted`);
 
   // Step 4: Filter
   const blacklistLower = keywordBlacklist.map((k) => k.toLowerCase());
@@ -248,44 +243,50 @@ async function runScan(userId: string, authHeader: string): Promise<{
     if (blacklistLower.some((k) => text.includes(k))) return false;
     return true;
   });
+  console.log(`[scan] Step 4: ${filteredJobs.length} jobs after filtering`);
 
-  // Step 5: Batch scoring
-  const scoreChunks: any[][] = [];
-  for (let i = 0; i < filteredJobs.length; i += 8) {
-    scoreChunks.push(filteredJobs.slice(i, i + 8));
-  }
-  const scoringResults = await runInBatches(scoreChunks, 2, (chunk) =>
-    scoreJobsBatch(chunk, profile, LOVABLE_API_KEY)
-  );
+  // Step 5: Score
+  console.log(`[scan] Step 5: Scoring jobs...`);
+  const scores = await scoreJobsBatch(filteredJobs, profile, LOVABLE_API_KEY);
+  const scoredJobs = filteredJobs.map((job, i) => {
+    const scoreEntry = scores.find((s) => s.index === i);
+    return { job, score: scoreEntry ? Math.min(100, Math.max(0, Math.round(scoreEntry.score))) : 50 };
+  });
+  scoredJobs.sort((a, b) => b.score - a.score);
+  console.log(`[scan] Step 5 done: ${scoredJobs.length} scored, top score: ${scoredJobs[0]?.score}`);
 
-  const allScoredJobs: { job: any; score: number }[] = [];
-  for (let ci = 0; ci < scoreChunks.length; ci++) {
-    const chunk = scoreChunks[ci];
-    const scoreResult = scoringResults[ci];
-    const scores: { index: number; score: number }[] =
-      scoreResult.status === "fulfilled" ? scoreResult.value : chunk.map((_, i) => ({ index: i, score: 50 }));
-    for (let ji = 0; ji < chunk.length; ji++) {
-      const scoreEntry = scores.find((s) => s.index === ji);
-      const score = scoreEntry ? Math.min(100, Math.max(0, Math.round(scoreEntry.score))) : 50;
-      allScoredJobs.push({ job: chunk[ji], score });
+  // Keep top 5
+  const topJobs = scoredJobs.slice(0, 5);
+  console.log(`[scan] Keeping top ${topJobs.length} jobs`);
+
+  // Step 6: Enrich companies
+  console.log(`[scan] Step 6: Enriching company info...`);
+  const enrichedDescriptions: Map<string, string> = new Map();
+  for (const { job } of topJobs) {
+    const company = job.company || "Unknown";
+    if (!enrichedDescriptions.has(company)) {
+      const desc = await enrichCompany(company, FIRECRAWL_API_KEY, LOVABLE_API_KEY);
+      enrichedDescriptions.set(company, desc);
+      console.log(`[scan] Enriched "${company}": ${desc.substring(0, 80)}...`);
     }
   }
 
-  // Sort by score descending and guarantee at least 10 jobs
-  allScoredJobs.sort((a, b) => b.score - a.score);
-  const MIN_JOBS = 10;
-  const finalJobs = allScoredJobs.slice(0, Math.max(MIN_JOBS, allScoredJobs.length));
-
-  // Step 6: Deduplicate & save
+  // Step 7: Deduplicate & save
+  console.log(`[scan] Step 7: Saving to database...`);
   let savedCount = 0;
-  for (const { job, score } of finalJobs) {
+  for (const { job, score } of topJobs) {
     const hashInput = `${(job.company || "").toLowerCase().trim()}|${(job.title || "").toLowerCase().trim()}|${(job.location || "").toLowerCase().trim()}`;
     const encoder = new TextEncoder();
     const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(hashInput));
     const duplicateHash = Array.from(new Uint8Array(hashBuffer)).map((b) => b.toString(16).padStart(2, "0")).join("");
 
     const { data: existing } = await db.from("job_listings").select("id").eq("user_id", userId).eq("duplicate_hash", duplicateHash).maybeSingle();
-    if (existing) continue;
+    if (existing) {
+      console.log(`[scan] Skipping duplicate: ${job.title} at ${job.company}`);
+      continue;
+    }
+
+    const companyDesc = enrichedDescriptions.get(job.company || "Unknown") || null;
 
     const { error: insertError } = await db.from("job_listings").insert({
       user_id: userId,
@@ -299,16 +300,23 @@ async function runScan(userId: string, authHeader: string): Promise<{
       status: "pending",
       source: "firecrawl",
       duplicate_hash: duplicateHash,
+      company_description: companyDesc,
     });
-    if (!insertError) savedCount++;
+    if (!insertError) {
+      savedCount++;
+      console.log(`[scan] Saved: ${job.title} at ${job.company} (score: ${score})`);
+    } else {
+      console.error(`[scan] Insert error:`, insertError);
+    }
   }
 
+  console.log(`[scan] Done! Saved ${savedCount} new jobs`);
   return {
     queries_run: queries.length,
     raw_results: allResults.length,
     jobs_extracted: allJobs.length,
     jobs_filtered: filteredJobs.length,
-    jobs_scored: allScoredJobs.length,
+    jobs_scored: scoredJobs.length,
     jobs_saved: savedCount,
   };
 }
@@ -346,16 +354,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Run scan synchronously and return results
-    const result = await runScan(user.id, authHeader);
+    console.log(`[scan] Starting scan for user ${user.id}`);
+    const result = await runScan(user.id);
 
     return new Response(JSON.stringify({
       success: true,
       ...result,
-      message: `Found ${result.jobs_saved} new jobs (searched ${result.queries_run} queries, ${result.raw_results} results, extracted ${result.jobs_extracted}, scored ${result.jobs_scored}).`,
+      message: `Found ${result.jobs_saved} new jobs (${result.queries_run} queries, ${result.raw_results} results, ${result.jobs_extracted} extracted, ${result.jobs_scored} scored).`,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
-    console.error("Scan error:", error);
+    console.error("[scan] Error:", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -39,6 +39,7 @@ export interface JobListing {
   tailored_resume_text: string | null;
   cover_letter_text: string | null;
   apply_log: any[] | null;
+  company_description: string | null;
 }
 
 export const jobsApi = {
