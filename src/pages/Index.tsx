@@ -33,99 +33,99 @@ async function downloadAsPDF(text: string, filename: string) {
 
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
-  const marginL = 20;
-  const marginR = 20;
-  const marginT = 22;
-  const marginB = 20;
-  const contentW = pageW - marginL - marginR;
-  let y = marginT;
+  const mL = 19;
+  const mR = 19;
+  const mT = 20;
+  const mB = 18;
+  const cW = pageW - mL - mR;
+  let y = mT;
+  let lineNum = 0; // tracks non-empty lines written
 
-  const addPage = () => {
-    doc.addPage();
-    y = marginT;
-  };
+  const newPage = () => { doc.addPage(); y = mT; };
+  const checkY = (n: number) => { if (y + n > pageH - mB) newPage(); };
 
-  const checkY = (needed: number) => {
-    if (y + needed > pageH - marginB) addPage();
-  };
+  const rawLines = text.split("\n");
 
-  const lines = text.split("\n");
-  let i = 0;
-
-  while (i < lines.length) {
-    const raw = lines[i];
+  for (const raw of rawLines) {
     const line = raw.trim();
 
-    // Blank line = small gap
     if (line === "" || line === "---") {
-      y += 3;
-      i++;
+      y += 2.5;
       continue;
     }
 
-    // Detect NAME line (first non-empty line - larger, bold)
-    if (i === 0 || (i <= 2 && !line.startsWith("•") && line.length < 60 && !line.includes("|") && !line.includes("@"))) {
-      checkY(10);
+    // LINE 1: Candidate name — large, bold, black
+    if (lineNum === 0) {
+      checkY(14);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(20, 20, 20);
-      doc.text(line, marginL, y);
-      y += 7;
-      i++;
+      doc.setFontSize(22);
+      doc.setTextColor(15, 15, 15);
+      doc.text(line, mL, y);
+      y += 9;
+      lineNum++;
       continue;
     }
 
-    // Contact / subtitle line (contains @ or phone or • separators)
-    if (line.includes("@") || line.includes("+") || (line.includes("•") && line.includes(".")) ) {
+    // LINE 2: Professional title/subtitle — medium, normal, dark grey
+    if (lineNum === 1 && !line.includes("@") && !line.includes("+966") && !line.includes("+1")) {
+      checkY(7);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(60, 60, 60);
+      doc.text(line, mL, y);
+      y += 6;
+      lineNum++;
+      continue;
+    }
+
+    // Contact line — small, grey
+    if (line.includes("@") || line.includes("+966") || line.includes("+1 (") || (lineNum <= 3 && line.includes("•") && line.includes("."))) {
       checkY(6);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 80);
-      const wrapped = doc.splitTextToSize(line, contentW);
-      wrapped.forEach((wl: string) => {
-        checkY(5);
-        doc.text(wl, marginL, y);
-        y += 4.5;
-      });
-      i++;
+      doc.setFontSize(8.5);
+      doc.setTextColor(90, 90, 90);
+      const wrapped = doc.splitTextToSize(line, cW);
+      wrapped.forEach((wl: string) => { checkY(5); doc.text(wl, mL, y); y += 4.5; });
+      lineNum++;
       continue;
     }
 
-    // Section headers: **HEADER** or ALL CAPS lines
-    const boldMatch = line.match(/^\*\*(.+)\*\*$/);
-    const isAllCaps = line === line.toUpperCase() && line.length > 3 && /[A-Z]/.test(line) && !line.startsWith("•");
+    // Section headers: ALL CAPS or **bold** markers
+    const boldMatch = line.match(/^\*\*(.+?)\*\*\s*:?\s*$/);
+    const isHeader = boldMatch || (
+      line === line.toUpperCase() &&
+      line.replace(/[^A-Z]/g, "").length > 2 &&
+      !line.startsWith("•") &&
+      !line.startsWith("-") &&
+      line.length < 60
+    );
 
-    if (boldMatch || isAllCaps) {
-      const headerText = boldMatch ? boldMatch[1] : line;
-      y += 2;
-      checkY(8);
+    if (isHeader) {
+      const hText = boldMatch ? boldMatch[1].toUpperCase() : line;
+      y += 3;
+      checkY(9);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(10.5);
-      doc.setTextColor(30, 30, 30);
-      doc.text(headerText.toUpperCase(), marginL, y);
-      // Underline
-      const textW = doc.getTextWidth(headerText.toUpperCase());
-      doc.setDrawColor(30, 30, 30);
-      doc.setLineWidth(0.4);
-      doc.line(marginL, y + 1, pageW - marginR, y + 1);
-      y += 6;
-      i++;
+      doc.setFontSize(10);
+      doc.setTextColor(15, 15, 15);
+      doc.text(hText, mL, y);
+      doc.setDrawColor(15, 15, 15);
+      doc.setLineWidth(0.35);
+      doc.line(mL, y + 1.2, pageW - mR, y + 1.2);
+      y += 6.5;
+      lineNum++;
       continue;
     }
 
-    // Job title lines: "Title | Company | Date" pattern
-    if (line.includes("|") && !line.startsWith("•")) {
+    // Job title lines: "Title | Company | Dates"
+    if (line.includes(" | ") && !line.startsWith("•") && !line.startsWith("-")) {
+      y += 1;
       checkY(7);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(20, 20, 20);
-      const wrapped = doc.splitTextToSize(line, contentW);
-      wrapped.forEach((wl: string) => {
-        checkY(6);
-        doc.text(wl, marginL, y);
-        y += 5.5;
-      });
-      i++;
+      const wrapped = doc.splitTextToSize(line, cW);
+      wrapped.forEach((wl: string) => { checkY(6); doc.text(wl, mL, y); y += 5.2; });
+      lineNum++;
       continue;
     }
 
@@ -134,32 +134,28 @@ async function downloadAsPDF(text: string, filename: string) {
       checkY(5);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9.5);
-      doc.setTextColor(40, 40, 40);
-      const bulletText = line.replace(/^[•\-]\s*/, "");
-      const wrapped = doc.splitTextToSize(bulletText, contentW - 5);
-      doc.text("•", marginL, y);
+      doc.setTextColor(35, 35, 35);
+      const bText = line.replace(/^[•\-]\s*/, "");
+      const wrapped = doc.splitTextToSize(bText, cW - 6);
+      doc.text("•", mL + 1, y);
       wrapped.forEach((wl: string, wi: number) => {
         checkY(5);
-        doc.text(wl, marginL + 5, y);
+        doc.text(wl, mL + 6, y);
         if (wi < wrapped.length - 1) y += 4.8;
       });
       y += 5;
-      i++;
+      lineNum++;
       continue;
     }
 
-    // Regular paragraph text
+    // Normal text
     checkY(5);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9.5);
-    doc.setTextColor(40, 40, 40);
-    const wrapped = doc.splitTextToSize(line, contentW);
-    wrapped.forEach((wl: string) => {
-      checkY(5);
-      doc.text(wl, marginL, y);
-      y += 4.8;
-    });
-    i++;
+    doc.setTextColor(35, 35, 35);
+    const wrapped = doc.splitTextToSize(line, cW);
+    wrapped.forEach((wl: string) => { checkY(5); doc.text(wl, mL, y); y += 4.8; });
+    lineNum++;
   }
 
   doc.save(`${filename}.pdf`);
