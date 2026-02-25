@@ -59,16 +59,16 @@ async function downloadAsPDF(text: string, filename: string) {
   const html2canvas = html2canvasModule.default;
 
   const container = document.createElement("div");
-  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:white;padding:58px 65px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
+  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;max-height:1123px;overflow:hidden;background:white;padding:45px 60px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
   container.innerHTML = `<style>
-    .name{font-size:26px;font-weight:bold;margin-bottom:4px;line-height:1.2;text-align:center;}
-    .subtitle{font-size:12.5px;color:#444;margin-bottom:3px;text-align:center;}
-    .contact{font-size:10px;color:#666;margin-bottom:12px;text-align:center;}
-    .gap{height:4px;}
-    .section-header{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:0.7px;margin-top:13px;margin-bottom:5px;padding-bottom:3px;border-bottom:1.5px solid #111;}
-    .job-title{font-size:10.5px;font-weight:bold;margin-top:7px;margin-bottom:2px;}
-    .bullet{font-size:10px;padding-left:14px;text-indent:-8px;margin-bottom:2px;line-height:1.45;color:#222;}
-    .normal{font-size:10px;margin-bottom:3px;line-height:1.45;color:#222;}
+    .name{font-size:24px;font-weight:bold;margin-bottom:3px;line-height:1.2;text-align:center;}
+    .subtitle{font-size:11.5px;color:#444;margin-bottom:2px;text-align:center;}
+    .contact{font-size:9.5px;color:#666;margin-bottom:10px;text-align:center;}
+    .gap{height:3px;}
+    .section-header{font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:0.7px;margin-top:10px;margin-bottom:4px;padding-bottom:2px;border-bottom:1.5px solid #111;}
+    .job-title{font-size:10px;font-weight:bold;margin-top:5px;margin-bottom:1px;}
+    .bullet{font-size:9.5px;padding-left:13px;text-indent:-7px;margin-bottom:1.5px;line-height:1.4;color:#222;}
+    .normal{font-size:9.5px;margin-bottom:2px;line-height:1.4;color:#222;}
   </style>${buildResumeHTML(text)}`;
   document.body.appendChild(container);
 
