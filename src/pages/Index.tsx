@@ -28,17 +28,19 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive" },
 };
 
+function stripMarkdown(t: string): string {
+  return t
+    .replace(/^#{1,6} */gm, "")
+    .replace(/^> */gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/—/g, "")
+    .replace(/–/g, "-")
+    .replace(/`(.+?)`/g, "$1");
+}
+
 function buildResumeHTML(rawText: string): string {
-  // Use remove-markdown to strip all markdown, but preserve bullet chars and section structure
-  const text = rawText
-    .replace(/^#{1,6}\s*/gm, "")     // remove # headers
-    .replace(/^>\s*/gm, "")           // remove blockquotes
-    .replace(/\*\*(.+?)\*\*/g, "$1")  // remove **bold**
-    .replace(/\*(.+?)\*/g, "$1")      // remove *italic*
-    .replace(/^[-–—]{3,}$/gm, "")     // remove hr lines
-    .replace(/\u2014/g, "")           // remove em dash
-    .replace(/\u2013/g, "-")          // replace en dash with hyphen
-    .replace(/`(.+?)`/g, "$1");        // remove code ticks
+  const text = stripMarkdown(rawText);
   const lines = text.split("\n");
   let html = "";
   let lineNum = 0;
