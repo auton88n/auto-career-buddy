@@ -27,96 +27,67 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive" },
 };
 
-function downloadAsPDF(text: string, filename: string) {
+function buildResumeHTML(text: string): string {
   const lines = text.split("\n");
   let html = "";
   let lineNum = 0;
-
   for (const raw of lines) {
     const line = raw.trim();
-    if (line === "" || line === "---") {
-      if (lineNum > 0) html += `<div class="gap"></div>`;
-      continue;
-    }
-    // Name - first line
-    if (lineNum === 0) {
-      html += `<div class="name">${line}</div>`;
-      lineNum++; continue;
-    }
-    // Subtitle - second line
-    if (lineNum === 1 && !line.includes("@") && !line.includes("+966") && !line.includes("+1 (")) {
-      html += `<div class="subtitle">${line}</div>`;
-      lineNum++; continue;
-    }
-    // Contact line
-    if (line.includes("@") || line.includes("+966") || line.includes("+1 (") || (lineNum <= 3 && line.includes("•"))) {
-      html += `<div class="contact">${line}</div>`;
-      lineNum++; continue;
-    }
-    // Section headers ALL CAPS
+    if (line === "" || line === "---") { if (lineNum > 0) html += `<div class="gap"></div>`; continue; }
+    if (lineNum === 0) { html += `<div class="name">${line}</div>`; lineNum++; continue; }
+    if (lineNum === 1 && !line.includes("@") && !line.includes("+966") && !line.includes("+1 (")) { html += `<div class="subtitle">${line}</div>`; lineNum++; continue; }
+    if (line.includes("@") || line.includes("+966") || line.includes("+1 (") || (lineNum <= 3 && line.includes("•") && line.includes("."))) { html += `<div class="contact">${line}</div>`; lineNum++; continue; }
     const boldMatch = line.match(/^\*\*(.+?)\*\*\s*$/);
     const isHeader = boldMatch || (line === line.toUpperCase() && line.replace(/[^A-Z]/g, "").length > 2 && !line.startsWith("•") && line.length < 60);
-    if (isHeader) {
-      const t = boldMatch ? boldMatch[1] : line;
-      html += `<div class="section-header">${t}</div>`;
-      lineNum++; continue;
-    }
-    // Job title lines with |
-    if (line.includes(" | ") && !line.startsWith("•") && !line.startsWith("-")) {
-      html += `<div class="job-title">${line}</div>`;
-      lineNum++; continue;
-    }
-    // Bullets
-    if (line.startsWith("•") || line.startsWith("-")) {
-      html += `<div class="bullet">• ${line.replace(/^[•\-]\s*/, "")}</div>`;
-      lineNum++; continue;
-    }
-    // Normal text
+    if (isHeader) { html += `<div class="section-header">${boldMatch ? boldMatch[1] : line}</div>`; lineNum++; continue; }
+    if (line.includes(" | ") && !line.startsWith("•")) { html += `<div class="job-title">${line}</div>`; lineNum++; continue; }
+    if (line.startsWith("•") || line.startsWith("-")) { html += `<div class="bullet">• ${line.replace(/^[•\-]\s*/, "")}</div>`; lineNum++; continue; }
     html += `<div class="normal">${line}</div>`;
     lineNum++;
   }
-
-  const fullHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-  @page { margin: 18mm 18mm 18mm 18mm; size: A4; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: #1a1a1a; background: white; }
-  .name { font-size: 22pt; font-weight: bold; margin-bottom: 3pt; }
-  .subtitle { font-size: 11pt; color: #444; margin-bottom: 2pt; }
-  .contact { font-size: 8.5pt; color: #666; margin-bottom: 10pt; }
-  .gap { height: 4pt; }
-  .section-header {
-    font-size: 10pt;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.5pt;
-    margin-top: 10pt;
-    margin-bottom: 4pt;
-    padding-bottom: 2pt;
-    border-bottom: 1px solid #1a1a1a;
-  }
-  .job-title { font-size: 10pt; font-weight: bold; margin-top: 5pt; margin-bottom: 1pt; }
-  .bullet { font-size: 9.5pt; padding-left: 12pt; text-indent: -6pt; margin-bottom: 1.5pt; color: #222; }
-  .normal { font-size: 9.5pt; margin-bottom: 2pt; color: #222; }
-</style>
-</head>
-<body>${html}</body>
-</html>`;
-
-  const blob = new Blob([fullHtml], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank");
-  if (win) {
-    win.addEventListener("load", () => {
-      win.document.title = filename;
-      setTimeout(() => { win.print(); }, 500);
-    });
-  }
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  return html;
 }
+
+async function downloadAsPDF(text: string, filename: string) {
+  const [{ jsPDF }, html2canvasModule] = await Promise.all([import("jspdf"), import("html2canvas")]);
+  const html2canvas = html2canvasModule.default;
+
+  const container = document.createElement("div");
+  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:white;padding:58px 65px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
+  container.innerHTML = `<style>
+    .name{font-size:26px;font-weight:bold;margin-bottom:4px;line-height:1.2;}
+    .subtitle{font-size:12.5px;color:#444;margin-bottom:3px;}
+    .contact{font-size:10px;color:#666;margin-bottom:12px;}
+    .gap{height:4px;}
+    .section-header{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:0.7px;margin-top:13px;margin-bottom:5px;padding-bottom:3px;border-bottom:1.5px solid #111;}
+    .job-title{font-size:10.5px;font-weight:bold;margin-top:7px;margin-bottom:2px;}
+    .bullet{font-size:10px;padding-left:14px;text-indent:-8px;margin-bottom:2px;line-height:1.45;color:#222;}
+    .normal{font-size:10px;margin-bottom:3px;line-height:1.45;color:#222;}
+  </style>${buildResumeHTML(text)}`;
+  document.body.appendChild(container);
+
+  const canvas = await html2canvas(container, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+  document.body.removeChild(container);
+
+  const imgData = canvas.toDataURL("image/png");
+  const pdf = new jsPDF({ unit: "mm", format: "a4" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const imgH = (canvas.height * pageW) / canvas.width;
+
+  let posY = 0;
+  let page = 0;
+  let remaining = imgH;
+  while (remaining > 0) {
+    if (page > 0) pdf.addPage();
+    pdf.addImage(imgData, "PNG", 0, -posY, pageW, imgH);
+    posY += pageH;
+    remaining -= pageH;
+    page++;
+  }
+  pdf.save(`${filename}.pdf`);
+}
+
 
 export default function Index() {
   const { user, session } = useAuth();
