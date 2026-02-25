@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import removeMd from "remove-markdown";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,20 +28,22 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive" },
 };
 
-function buildResumeHTML(text: string): string {
+function buildResumeHTML(rawText: string): string {
+  // Use remove-markdown to strip all markdown, but preserve bullet chars and section structure
+  const text = rawText
+    .replace(/^#{1,6}\s*/gm, "")     // remove # headers
+    .replace(/^>\s*/gm, "")           // remove blockquotes
+    .replace(/\*\*(.+?)\*\*/g, "$1")  // remove **bold**
+    .replace(/\*(.+?)\*/g, "$1")      // remove *italic*
+    .replace(/^[-–—]{3,}$/gm, "")     // remove hr lines
+    .replace(/\u2014/g, "")           // remove em dash
+    .replace(/\u2013/g, "-")          // replace en dash with hyphen
+    .replace(/`(.+?)`/g, "$1");        // remove code ticks
   const lines = text.split("\n");
   let html = "";
   let lineNum = 0;
   for (const raw of lines) {
-    // Aggressively strip ALL markdown
-    let line = raw.trim();
-    line = line.replace(/^#{1,6}\s*/g, "");
-    line = line.replace(/^>\s*/g, "");
-    line = line.replace(/\*\*(.+?)\*\*/g, "$1");
-    line = line.replace(/\*(.+?)\*/g, "$1");
-    line = line.replace(/\u2014/g, "");
-    line = line.replace(/\s{2,}/g, " ");
-    line = line.trim();
+    const line = raw.trim();
 
     if (line === "" || line === "---") { if (lineNum > 0) html += `<div class="gap"></div>`; continue; }
     if (lineNum === 0) { html += `<div class="name">${line}</div>`; lineNum++; continue; }
