@@ -32,12 +32,14 @@ function buildResumeHTML(text: string): string {
   let html = "";
   let lineNum = 0;
   for (const raw of lines) {
-    // Strip markdown symbols first
+    // Aggressively strip ALL markdown
     let line = raw.trim();
-    line = line.replace(/^#{1,3}\s*/, "");   // remove # ## ###
-    line = line.replace(/^>\s*/, "");         // remove >
-    line = line.replace(/\*\*(.+?)\*\*/g, "$1"); // remove **bold**
-    line = line.replace(/^-{3,}$/, "---");    // normalize hr
+    line = line.replace(/^#{1,6}\s*/g, "");
+    line = line.replace(/^>\s*/g, "");
+    line = line.replace(/\*\*(.+?)\*\*/g, "$1");
+    line = line.replace(/\*(.+?)\*/g, "$1");
+    line = line.replace(/\u2014/g, "");
+    line = line.replace(/\s{2,}/g, " ");
     line = line.trim();
 
     if (line === "" || line === "---") { if (lineNum > 0) html += `<div class="gap"></div>`; continue; }
