@@ -61,11 +61,18 @@ function buildResumeHTML(rawText: string): string {
   return html;
 }
 
-function buildCoverLetterHTML(text: string): string {
-  return text.split("\n").map(line => {
-    if (line.trim() === "") return `<div style="height:12px;"></div>`;
-    return `<div style="font-size:13px;line-height:1.6;margin-bottom:2px;color:#1a1a1a;">${line}</div>`;
-  }).join("");
+function buildCoverLetterHTML(rawText: string): string {
+  const text = stripMarkdown(rawText);
+  const lines = text.split("\n");
+  let html = "";
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line === "") { html += `<div class="cl-gap"></div>`; continue; }
+    if (line.startsWith("Dear ")) { html += `<div class="cl-greeting">${line}</div>`; continue; }
+    if (line === "Sincerely," || line === "Best regards," || line === "Kind regards,") { html += `<div class="cl-closing">${line}</div>`; continue; }
+    html += `<div class="cl-body">${line}</div>`;
+  }
+  return html;
 }
 
 async function downloadAsPDF(text: string, filename: string) {
@@ -87,6 +94,10 @@ async function downloadAsPDF(text: string, filename: string) {
     .job-title{font-size:13px;font-weight:bold;margin-top:6px;margin-bottom:2px;}
     .bullet{font-size:13px;padding-left:13px;text-indent:-7px;margin-bottom:2px;line-height:1.45;color:#222;}
     .normal{font-size:13px;margin-bottom:2px;line-height:1.45;color:#222;}
+    .cl-greeting{font-size:16px;font-weight:bold;margin-bottom:14px;line-height:1.3;text-align:left;}
+    .cl-body{font-size:13px;line-height:1.55;margin-bottom:2px;color:#222;text-align:left;}
+    .cl-gap{height:10px;}
+    .cl-closing{font-size:13px;margin-top:8px;margin-bottom:2px;color:#222;}
   </style>${content}`;
   document.body.appendChild(container);
 
