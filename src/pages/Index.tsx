@@ -66,16 +66,16 @@ async function downloadAsPDF(text: string, filename: string) {
   const html2canvas = html2canvasModule.default;
 
   const container = document.createElement("div");
-  container.style.cssText = "position:fixed;left:-9999px;top:0;width:1240px;max-height:1754px;overflow:hidden;background:white;padding:70px 90px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
+  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:white;padding:50px 60px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
   container.innerHTML = `<style>
-    .name{font-size:42px;font-weight:bold;margin-bottom:4px;line-height:1.2;text-align:center;}
-    .subtitle{font-size:22px;color:#444;margin-bottom:3px;text-align:center;}
-    .contact{font-size:18px;color:#666;margin-bottom:12px;text-align:center;}
+    .name{font-size:28px;font-weight:bold;margin-bottom:4px;line-height:1.2;text-align:center;}
+    .subtitle{font-size:15px;color:#444;margin-bottom:3px;text-align:center;}
+    .contact{font-size:12px;color:#666;margin-bottom:12px;text-align:center;}
     .gap{height:3px;}
-    .section-header{font-size:19px;font-weight:bold;text-transform:uppercase;letter-spacing:0.7px;margin-top:11px;margin-bottom:5px;padding-bottom:2px;border-bottom:1.5px solid #111;}
-    .job-title{font-size:19px;font-weight:bold;margin-top:6px;margin-bottom:2px;}
-    .bullet{font-size:18px;padding-left:13px;text-indent:-7px;margin-bottom:2px;line-height:1.45;color:#222;}
-    .normal{font-size:18px;margin-bottom:2px;line-height:1.45;color:#222;}
+    .section-header{font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:0.7px;margin-top:11px;margin-bottom:5px;padding-bottom:2px;border-bottom:1.5px solid #111;}
+    .job-title{font-size:13px;font-weight:bold;margin-top:6px;margin-bottom:2px;}
+    .bullet{font-size:12px;padding-left:13px;text-indent:-7px;margin-bottom:2px;line-height:1.45;color:#222;}
+    .normal{font-size:12px;margin-bottom:2px;line-height:1.45;color:#222;}
   </style>${buildResumeHTML(text)}`;
   document.body.appendChild(container);
 
@@ -83,21 +83,9 @@ async function downloadAsPDF(text: string, filename: string) {
   document.body.removeChild(container);
 
   const imgData = canvas.toDataURL("image/png");
-  const pdf = new jsPDF({ unit: "mm", format: "a4" });
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const imgH = (canvas.height * pageW) / canvas.width;
-
-  let posY = 0;
-  let page = 0;
-  let remaining = imgH;
-  while (remaining > 0) {
-    if (page > 0) pdf.addPage();
-    pdf.addImage(imgData, "PNG", 0, -posY, pageW, imgH);
-    posY += pageH;
-    remaining -= pageH;
-    page++;
-  }
+  // Use px units + px_scaling hotfix so PDF matches canvas 1:1 with no scaling distortion
+  const pdf = new jsPDF({ unit: "px", format: [canvas.width / 2, canvas.height / 2], hotfixes: ["px_scaling"] });
+  pdf.addImage(imgData, "PNG", 0, 0, canvas.width / 2, canvas.height / 2);
   pdf.save(`${filename}.pdf`);
 }
 
