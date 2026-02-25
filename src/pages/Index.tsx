@@ -27,138 +27,95 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   failed: { label: "Failed", variant: "destructive" },
 };
 
-async function downloadAsPDF(text: string, filename: string) {
-  const { jsPDF } = await import("jspdf");
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+function downloadAsPDF(text: string, filename: string) {
+  const lines = text.split("\n");
+  let html = "";
+  let lineNum = 0;
 
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const mL = 19;
-  const mR = 19;
-  const mT = 20;
-  const mB = 18;
-  const cW = pageW - mL - mR;
-  let y = mT;
-  let lineNum = 0; // tracks non-empty lines written
-
-  const newPage = () => { doc.addPage(); y = mT; };
-  const checkY = (n: number) => { if (y + n > pageH - mB) newPage(); };
-
-  const rawLines = text.split("\n");
-
-  for (const raw of rawLines) {
+  for (const raw of lines) {
     const line = raw.trim();
-
     if (line === "" || line === "---") {
-      if (lineNum > 0) y += 2.5; // only add gap after name is written
+      if (lineNum > 0) html += `<div class="gap"></div>`;
       continue;
     }
-
-    // LINE 1: Candidate name — large, bold, black
+    // Name - first line
     if (lineNum === 0) {
-      checkY(14);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.setTextColor(15, 15, 15);
-      doc.text(line, mL, y);
-      y += 9;
-      lineNum++;
-      continue;
+      html += `<div class="name">${line}</div>`;
+      lineNum++; continue;
     }
-
-    // LINE 2: Professional title/subtitle — medium, normal, dark grey
-    if (lineNum === 1 && !line.includes("@") && !line.includes("+966") && !line.includes("+1")) {
-      checkY(7);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
-      doc.setTextColor(60, 60, 60);
-      doc.text(line, mL, y);
-      y += 6;
-      lineNum++;
-      continue;
+    // Subtitle - second line
+    if (lineNum === 1 && !line.includes("@") && !line.includes("+966") && !line.includes("+1 (")) {
+      html += `<div class="subtitle">${line}</div>`;
+      lineNum++; continue;
     }
-
-    // Contact line — small, grey
-    if (line.includes("@") || line.includes("+966") || line.includes("+1 (") || (lineNum <= 3 && line.includes("•") && line.includes("."))) {
-      checkY(6);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
-      doc.setTextColor(90, 90, 90);
-      const wrapped = doc.splitTextToSize(line, cW);
-      wrapped.forEach((wl: string) => { checkY(5); doc.text(wl, mL, y); y += 4.5; });
-      lineNum++;
-      continue;
+    // Contact line
+    if (line.includes("@") || line.includes("+966") || line.includes("+1 (") || (lineNum <= 3 && line.includes("•"))) {
+      html += `<div class="contact">${line}</div>`;
+      lineNum++; continue;
     }
-
-    // Section headers: ALL CAPS or **bold** markers
-    const boldMatch = line.match(/^\*\*(.+?)\*\*\s*:?\s*$/);
-    const isHeader = boldMatch || (
-      line === line.toUpperCase() &&
-      line.replace(/[^A-Z]/g, "").length > 2 &&
-      !line.startsWith("•") &&
-      !line.startsWith("-") &&
-      line.length < 60
-    );
-
+    // Section headers ALL CAPS
+    const boldMatch = line.match(/^\*\*(.+?)\*\*\s*$/);
+    const isHeader = boldMatch || (line === line.toUpperCase() && line.replace(/[^A-Z]/g, "").length > 2 && !line.startsWith("•") && line.length < 60);
     if (isHeader) {
-      const hText = boldMatch ? boldMatch[1].toUpperCase() : line;
-      y += 3;
-      checkY(9);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(15, 15, 15);
-      doc.text(hText, mL, y);
-      doc.setDrawColor(15, 15, 15);
-      doc.setLineWidth(0.35);
-      doc.line(mL, y + 1.2, pageW - mR, y + 1.2);
-      y += 6.5;
-      lineNum++;
-      continue;
+      const t = boldMatch ? boldMatch[1] : line;
+      html += `<div class="section-header">${t}</div>`;
+      lineNum++; continue;
     }
-
-    // Job title lines: "Title | Company | Dates"
+    // Job title lines with |
     if (line.includes(" | ") && !line.startsWith("•") && !line.startsWith("-")) {
-      y += 1;
-      checkY(7);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(20, 20, 20);
-      const wrapped = doc.splitTextToSize(line, cW);
-      wrapped.forEach((wl: string) => { checkY(6); doc.text(wl, mL, y); y += 5.2; });
-      lineNum++;
-      continue;
+      html += `<div class="job-title">${line}</div>`;
+      lineNum++; continue;
     }
-
-    // Bullet points
+    // Bullets
     if (line.startsWith("•") || line.startsWith("-")) {
-      checkY(5);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
-      doc.setTextColor(35, 35, 35);
-      const bText = line.replace(/^[•\-]\s*/, "");
-      const wrapped = doc.splitTextToSize(bText, cW - 6);
-      doc.text("•", mL + 1, y);
-      wrapped.forEach((wl: string, wi: number) => {
-        checkY(5);
-        doc.text(wl, mL + 6, y);
-        if (wi < wrapped.length - 1) y += 4.8;
-      });
-      y += 5;
-      lineNum++;
-      continue;
+      html += `<div class="bullet">• ${line.replace(/^[•\-]\s*/, "")}</div>`;
+      lineNum++; continue;
     }
-
     // Normal text
-    checkY(5);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(35, 35, 35);
-    const wrapped = doc.splitTextToSize(line, cW);
-    wrapped.forEach((wl: string) => { checkY(5); doc.text(wl, mL, y); y += 4.8; });
+    html += `<div class="normal">${line}</div>`;
     lineNum++;
   }
 
-  doc.save(`${filename}.pdf`);
+  const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { margin: 18mm 18mm 18mm 18mm; size: A4; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: #1a1a1a; background: white; }
+  .name { font-size: 22pt; font-weight: bold; margin-bottom: 3pt; }
+  .subtitle { font-size: 11pt; color: #444; margin-bottom: 2pt; }
+  .contact { font-size: 8.5pt; color: #666; margin-bottom: 10pt; }
+  .gap { height: 4pt; }
+  .section-header {
+    font-size: 10pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    margin-top: 10pt;
+    margin-bottom: 4pt;
+    padding-bottom: 2pt;
+    border-bottom: 1px solid #1a1a1a;
+  }
+  .job-title { font-size: 10pt; font-weight: bold; margin-top: 5pt; margin-bottom: 1pt; }
+  .bullet { font-size: 9.5pt; padding-left: 12pt; text-indent: -6pt; margin-bottom: 1.5pt; color: #222; }
+  .normal { font-size: 9.5pt; margin-bottom: 2pt; color: #222; }
+</style>
+</head>
+<body>${html}</body>
+</html>`;
+
+  const blob = new Blob([fullHtml], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  if (win) {
+    win.addEventListener("load", () => {
+      win.document.title = filename;
+      setTimeout(() => { win.print(); }, 500);
+    });
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 export default function Index() {
