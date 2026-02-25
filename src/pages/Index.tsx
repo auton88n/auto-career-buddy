@@ -71,9 +71,12 @@ function buildCoverLetterHTML(text: string): string {
 async function downloadAsPDF(text: string, filename: string) {
   const [{ jsPDF }, html2canvasModule] = await Promise.all([import("jspdf"), import("html2canvas")]);
   const html2canvas = html2canvasModule.default;
+<<<<<<< HEAD
 
   const isCoverLetter = filename.startsWith("CoverLetter");
   const content = isCoverLetter ? buildCoverLetterHTML(text) : buildResumeHTML(text);
+=======
+>>>>>>> 77a0fdc52415d269cd7604af66f0cf32a0d22e5c
 
   const container = document.createElement("div");
   container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:white;padding:50px 60px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
@@ -87,7 +90,11 @@ async function downloadAsPDF(text: string, filename: string) {
     .job-title{font-size:13px;font-weight:bold;margin-top:6px;margin-bottom:2px;}
     .bullet{font-size:13px;padding-left:13px;text-indent:-7px;margin-bottom:2px;line-height:1.45;color:#222;}
     .normal{font-size:13px;margin-bottom:2px;line-height:1.45;color:#222;}
+<<<<<<< HEAD
   </style>${content}`;
+=======
+  </style>${buildResumeHTML(text)}`;
+>>>>>>> 77a0fdc52415d269cd7604af66f0cf32a0d22e5c
   document.body.appendChild(container);
 
   const canvas = await html2canvas(container, { scale: 3, useCORS: true, backgroundColor: "#ffffff" });
