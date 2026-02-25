@@ -32,16 +32,22 @@ function buildResumeHTML(text: string): string {
   let html = "";
   let lineNum = 0;
   for (const raw of lines) {
-    const line = raw.trim();
+    // Strip markdown symbols first
+    let line = raw.trim();
+    line = line.replace(/^#{1,3}\s*/, "");   // remove # ## ###
+    line = line.replace(/^>\s*/, "");         // remove >
+    line = line.replace(/\*\*(.+?)\*\*/g, "$1"); // remove **bold**
+    line = line.replace(/^-{3,}$/, "---");    // normalize hr
+    line = line.trim();
+
     if (line === "" || line === "---") { if (lineNum > 0) html += `<div class="gap"></div>`; continue; }
     if (lineNum === 0) { html += `<div class="name">${line}</div>`; lineNum++; continue; }
     if (lineNum === 1 && !line.includes("@") && !line.includes("+966") && !line.includes("+1 (")) { html += `<div class="subtitle">${line}</div>`; lineNum++; continue; }
     if (line.includes("@") || line.includes("+966") || line.includes("+1 (") || (lineNum <= 3 && line.includes("•") && line.includes("."))) { html += `<div class="contact">${line}</div>`; lineNum++; continue; }
-    const boldMatch = line.match(/^\*\*(.+?)\*\*\s*$/);
-    const isHeader = boldMatch || (line === line.toUpperCase() && line.replace(/[^A-Z]/g, "").length > 2 && !line.startsWith("•") && line.length < 60);
-    if (isHeader) { html += `<div class="section-header">${boldMatch ? boldMatch[1] : line}</div>`; lineNum++; continue; }
+    const isHeader = (line === line.toUpperCase() && line.replace(/[^A-Z]/g, "").length > 2 && !line.startsWith("•") && line.length < 60);
+    if (isHeader) { html += `<div class="section-header">${line}</div>`; lineNum++; continue; }
     if (line.includes(" | ") && !line.startsWith("•")) { html += `<div class="job-title">${line}</div>`; lineNum++; continue; }
-    if (line.startsWith("•") || line.startsWith("-")) { html += `<div class="bullet">• ${line.replace(/^[•\-]\s*/, "")}</div>`; lineNum++; continue; }
+    if (line.startsWith("•") || line.startsWith("-") || line.startsWith("*")) { html += `<div class="bullet">• ${line.replace(/^[•\-\*]\s*/, "")}</div>`; lineNum++; continue; }
     html += `<div class="normal">${line}</div>`;
     lineNum++;
   }
@@ -55,9 +61,9 @@ async function downloadAsPDF(text: string, filename: string) {
   const container = document.createElement("div");
   container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:white;padding:58px 65px;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;box-sizing:border-box;";
   container.innerHTML = `<style>
-    .name{font-size:26px;font-weight:bold;margin-bottom:4px;line-height:1.2;}
-    .subtitle{font-size:12.5px;color:#444;margin-bottom:3px;}
-    .contact{font-size:10px;color:#666;margin-bottom:12px;}
+    .name{font-size:26px;font-weight:bold;margin-bottom:4px;line-height:1.2;text-align:center;}
+    .subtitle{font-size:12.5px;color:#444;margin-bottom:3px;text-align:center;}
+    .contact{font-size:10px;color:#666;margin-bottom:12px;text-align:center;}
     .gap{height:4px;}
     .section-header{font-size:10.5px;font-weight:bold;text-transform:uppercase;letter-spacing:0.7px;margin-top:13px;margin-bottom:5px;padding-bottom:3px;border-bottom:1.5px solid #111;}
     .job-title{font-size:10.5px;font-weight:bold;margin-top:7px;margin-bottom:2px;}
